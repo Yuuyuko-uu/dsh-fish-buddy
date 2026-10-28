@@ -1442,6 +1442,11 @@ class 鱼搭子:
                               bg=淡卡, fg=字深, relief='flat', padx=10, pady=3,
                               font=('Microsoft YaHei UI', 9))
         self.灯陪看.pack(side='left', padx=(6, 0))
+        # ⭐ 1.1.4：第三盏灯 —— 游戏模式也能像电话/陪看一样在这儿开关
+        self.灯游戏 = tk.Button(self.功能行, text='○ 游戏：关', command=self._切游戏开关,
+                              bg=淡卡, fg=字深, relief='flat', padx=10, pady=3,
+                              font=('Microsoft YaHei UI', 9))
+        self.灯游戏.pack(side='left', padx=(6, 0))
 
         self.页区 = tk.Frame(self.外框, bg=淡底)
         self.页区.pack(fill='both', expand=True)
@@ -1619,8 +1624,23 @@ class 鱼搭子:
             self.灯陪看.configure(
                 text=('● 陪看：在听' if 开陪看 else '○ 陪看：关'),
                 fg=(绿 if 开陪看 else 字深))
+            开游戏 = bool(getattr(self, '游戏模式', False))
+            self.灯游戏.configure(
+                text=('● 游戏：开着' if 开游戏 else '○ 游戏：关'),
+                fg=(绿 if 开游戏 else 字深))
         except Exception:
             pass
+
+    def _切游戏开关(self):
+        """顶上那盏「游戏」灯：开着就退出，关着就进去（跟电话/陪看一个用法）。"""
+        if getattr(self, '游戏模式', False):
+            self._退出游戏()
+        else:
+            self.当前页 = '游戏'
+            if self.面板:
+                self.面板.withdraw()
+            self._进游戏模式()
+        self._刷功能行()
 
     def _切电话开关(self):
         if self.通话:
@@ -1715,6 +1735,10 @@ class 鱼搭子:
             pass
         try:
             self.根.withdraw()          # 球（和面板）藏起来
+        except Exception:
+            pass
+        try:
+            self._刷功能行()
         except Exception:
             pass
         return '进了游戏模式'
@@ -2107,6 +2131,10 @@ class 鱼搭子:
             pass
         try:
             self._建Tk浮窗(*self._浮窗位置)
+        except Exception:
+            pass
+        try:
+            self._刷功能行()
         except Exception:
             pass
         return '退出游戏模式了'
@@ -2636,8 +2664,10 @@ def 自测():
     断言.append(('看直播显示在功能窗内', 搭.陪看程序 is not None))
     搭._刷功能行()
     搭.根.update_idletasks()
-    断言.append(('顶上有两盏功能灯', hasattr(搭, '灯电话') and hasattr(搭, '灯陪看')))
+    断言.append(('顶上有三盏功能灯（电话 / 陪看 / 游戏）',
+                 hasattr(搭, '灯电话') and hasattr(搭, '灯陪看') and hasattr(搭, '灯游戏')))
     断言.append(('电话开着时灯是「在听」', '在听' in str(搭.灯电话.cget('text'))))
+    断言.append(('游戏灯跟着游戏模式走', '游戏' in str(搭.灯游戏.cget('text'))))
     搭._选择功能('游戏')
     断言.append(('打游戏保留代码占位且不另开窗口',
                  搭.当前页 == '游戏' and 搭.面板.state() == 'withdrawn'))

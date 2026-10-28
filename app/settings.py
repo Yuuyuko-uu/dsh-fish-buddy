@@ -148,21 +148,6 @@ class 设置页:
         for k, b in self.按钮们.items():
             b.configure(bg=(淡卡 if k == 名 else 淡底), fg=(蓝 if k == 名 else 字深))
         self.当前 = 名
-        # ⭐ 1.1.3：点到「游戏」这一页，就把游戏模式开起来 ——
-        #   悬浮窗收进弹幕框、弹幕层出来，设置窗留在最上面可以接着调。
-        if 名 == '游戏':
-            try:
-                self.应用._进游戏模式()
-                面 = getattr(self.应用, '面板', None)
-                if 面 is not None:
-                    面.attributes('-topmost', True)
-                    面.deiconify()
-                    面.lift()
-            except Exception as e:
-                try:
-                    self.说.set('进游戏模式没成：%s' % e)
-                except Exception:
-                    pass
         # ⭐ 0.6.3：没有滚动条了，滚轮就是唯一的滚法 —— 挂到整窗上，鼠标在哪个控件上都能滚
         try:
             画 = self.画们[self.页名.index(名)]
