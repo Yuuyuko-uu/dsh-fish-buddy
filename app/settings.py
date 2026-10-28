@@ -928,6 +928,19 @@ class 设置页:
         框5.bind('<FocusOut>', lambda e: self._存气泡())
         self.气泡字提示 = 提示2
 
+        # ⭐ 1.1.0：气泡淡入淡出按帧率走
+        行帧2 = tk.Frame(卡3, bg=淡卡)
+        行帧2.pack(fill='x', pady=(6, 0))
+        tk.Label(行帧2, text='每秒画', bg=淡卡, fg=字次,
+                 font=('Microsoft YaHei UI', 8)).pack(side='left')
+        self.气泡帧 = tk.StringVar(value='120 FPS' if int(self.配置.get('气泡帧率') or 60) >= 100 else '60 FPS')
+        菜帧2 = tk.OptionMenu(行帧2, self.气泡帧, '60 FPS', '120 FPS', command=lambda *_: self._存气泡())
+        菜帧2.configure(bg='#ffffff', fg=字深, relief='flat', highlightthickness=1,
+                        highlightbackground=淡线, font=('Microsoft YaHei UI', 8))
+        菜帧2.pack(side='left', padx=6)
+        tk.Label(行帧2, text='（冒出来和消失的顺滑度；120 更顺、更费电）', bg=淡卡, fg=字次,
+                 font=('Microsoft YaHei UI', 8)).pack(side='left')
+
         # ⭐ 2026-10-27：设置页里得能**打字试一下**，
         #   不然改完颜色/描边根本不知道长什么样，只能等真回话。
         行5 = tk.Frame(卡3, bg=淡卡)
@@ -1276,6 +1289,10 @@ class 设置页:
             c['气泡换页秒'] = max(1, min(60, int(str(getattr(self, '气泡换页', None).get()).strip() or 4)))
         except Exception:
             c['气泡换页秒'] = 4
+        try:
+            c['气泡帧率'] = 120 if str(getattr(self, '气泡帧', None).get()).startswith('120') else 60
+        except Exception:
+            c['气泡帧率'] = 60
         if paths.写配置(c):
             self.应用.配置.update(c)
             self.配置.update(c)

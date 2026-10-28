@@ -2409,6 +2409,11 @@ class 鱼搭子:
                     字体路,
                     字色=str(self.配置.get('气泡字色') or '#1c3a52'),
                     描边=int(self.配置.get('气泡描边', 2) or 0))
+                # ⭐ 1.1.0：淡入淡出按设定帧率走（60 / 120）
+                try:
+                    self.气泡.设帧率(int(self.配置.get('气泡帧率') or 60))
+                except Exception:
+                    pass
             try:
                 秒 = float(self.配置.get('气泡秒') or 6)
             except Exception:

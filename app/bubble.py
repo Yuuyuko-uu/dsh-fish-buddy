@@ -21,6 +21,15 @@ from PIL import Image, ImageDraw, ImageFont
 user32 = ctypes.windll.user32
 gdi32 = ctypes.windll.gdi32
 kernel32 = ctypes.windll.kernel32
+# ⭐ 1.1.0：120 帧要先提系统定时器精度（Tk 的 after 默认 ~15.6ms 一跳）
+winmm = ctypes.windll.winmm
+try:
+    winmm.timeBeginPeriod.argtypes = [ctypes.c_uint]
+    winmm.timeBeginPeriod.restype = ctypes.c_uint
+    winmm.timeEndPeriod.argtypes = [ctypes.c_uint]
+    winmm.timeEndPeriod.restype = ctypes.c_uint
+except Exception:
+    pass
 
 WS_EX_LAYERED = 0x00080000
 WS_EX_TRANSPARENT = 0x00000020
@@ -268,6 +277,26 @@ def 量内区(图):
     return (min(b for _, b, _ in 行们), min(ys), max(c for _, _, c in 行们), max(ys))
 
 
+_定时精度 = False
+
+
+def _要精度(要):
+    """120 帧得把系统定时器精度提到 1ms（Tk 的 after 默认只有 ~15.6ms）。"""
+    global _定时精度
+    if 要 and not _定时精度:
+        try:
+            winmm.timeBeginPeriod(1)
+            _定时精度 = True
+        except Exception:
+            _定时精度 = False
+    elif not 要 and _定时精度:
+        try:
+            winmm.timeEndPeriod(1)
+        except Exception:
+            pass
+        _定时精度 = False
+
+
 class 气泡:
     def __init__(self, 根, 图路, 字体路, 宽=520,
                  字色='#1c3a52', 描边色='#ffffff', 描边=2, 加粗=False,
@@ -299,6 +328,23 @@ class 气泡:
         self._位置 = (0, 0)
         self._入定时 = None
         self._底图 = None
+        # ⭐ 1.1.0：淡入淡出按「每秒画几帧」算（60 / 120）
+        self.帧率 = 60
+        self._帧间 = 17
+        self._入帧 = 11
+        self._出帧 = 19
+        self.设帧率(60)
+
+    def 设帧率(self, 帧率=60, 淡入毫秒=180, 淡出毫秒=320):
+        """换帧率：帧越高淡得越顺，代价是更费一点电。"""
+        self.帧率 = 120 if int(帧率 or 60) >= 100 else 60
+        self._帧间 = max(4, int(round(1000.0 / self.帧率)))
+        self._入帧 = max(4, int(self.帧率 * 淡入毫秒 / 1000.0))
+        self._出帧 = max(6, int(self.帧率 * 淡出毫秒 / 1000.0))
+        try:
+            _要精度(self.帧率 >= 100)
+        except Exception:
+            pass
 
     def _按宽(self, 宽):
         """等比缩放到这个宽度，并把「气泡里能写字的地方」重新量一遍。"""
@@ -581,8 +627,9 @@ class 气泡:
         except Exception:
             self._藏定时 = None
 
-    def _淡入(self, 步=0, 总=5):
+    def _淡入(self, 步=0, 总=None):
         """冒出来：从 94% 大小淡进来，头一下只有框、没有字，字在第二下才出来。"""
+        总 = int(总 if 总 is not None else self._入帧)
         if 步 >= 总:
             try:
                 self.窗.贴图(self.次图, self.次位置[0], self.次位置[1])
@@ -605,7 +652,7 @@ class 气泡:
         except Exception:
             pass
         try:
-            self._入定时 = self.根.after(38, lambda: self._淡入(步 + 1, 总))
+            self._入定时 = self.根.after(self._帧间, lambda: self._淡入(步 + 1, 总))
         except Exception:
             self._入定时 = None
 
@@ -616,20 +663,26 @@ class 气泡:
 
     def 藏(self):
         self._取消定时()
-        self._淡出(6)
+        self._淡出(0)
 
-    def _淡出(self, 剩):
-        """一点点变淡再消失（分层窗可以给整体不透明度）。"""
-        if 剩 <= 0:
+    def _淡出(self, 步=0):
+        """一点点变淡再消失（分层窗可以给整体不透明度）。
+
+        ⭐ 1.1.0：以前固定 6 帧 × 45ms，一帧跳一格，看着是一顿一顿淡下去的。
+        现在按「每秒画几帧」算：60 帧就是约 18 帧，120 帧约 36 帧，淡得很顺。
+        """
+        总 = max(3, int(self._出帧))
+        if 步 >= 总:
             self.窗.藏()
             return
+        不透明 = max(0, int(255 * (1.0 - 步 / float(总))))
         try:
             if self.次图 is not None:
-                self.窗.贴图(self.次图, self.次位置[0], self.次位置[1], 不透明=int(255 * 剩 / 6.0))
+                self.窗.贴图(self.次图, self.次位置[0], self.次位置[1], 不透明=不透明)
         except Exception:
             pass
         try:
-            self.根.after(45, lambda: self._淡出(剩 - 1))
+            self.根.after(self._帧间, lambda: self._淡出(步 + 1))
         except Exception:
             self.窗.藏()
 
