@@ -1014,6 +1014,8 @@ class App:
         开抽帧 = self._开抽帧()
         self.btn_stop.configure(state='normal')
         self.btn_start.configure(state='disabled')
+        # ⭐ 1.1.6：跟插件说「陪看开了」，它才允许自己开口
+        self._通知插件(True)
         self.status_text = '正在听  %s ｜ %s%s%s%s' % ('、'.join(n for _, n in picked),
                                                    self.mode.get(), 附注,
                                                    '｜也在读字幕' if 开字幕 else '',
@@ -1302,20 +1304,21 @@ class App:
         self.status.configure(text='已停止')
         # ⭐ 1.1.1：陪看停了要跟插件说一声 —— 不然那边攒着还没发出去的字幕，
         #   会在后面几轮里继续往会话里灌（表现就是「关了陪看还在发字幕」）。
-        self._通知插件停了()
+        self._通知插件(False)
 
-    def _通知插件停了(self):
+    def _通知插件(self, 开着):
+        """⭐ 1.1.6：告诉插件「陪看开/停了」—— 它靠这个决定能不能自己开口。"""
         try:
             import json as _j
             import urllib.request as _u
             端口 = int(paths.读配置().get('dsh_port') or 8777)
-            体 = _j.dumps({'watch': False}, ensure_ascii=False).encode('utf-8')
+            体 = _j.dumps({'watch': bool(开着)}, ensure_ascii=False).encode('utf-8')
             请求 = _u.Request('http://127.0.0.1:%d/hands/watch' % 端口, data=体,
                              headers={'Content-Type': 'application/json'})
             无代理 = _u.build_opener(_u.ProxyHandler({}))
             with 无代理.open(请求, timeout=3) as r:
                 r.read()
-            diag('已告诉插件：陪看停了，别再把攒着的字幕发进去')
+            diag('已告诉插件：陪看%s' % ('开了' if 开着 else '停了（攒着的字幕清掉）'))
         except Exception as e:
             try:
                 diag('告诉插件「陪看停了」没成：%s' % e)
