@@ -1904,6 +1904,15 @@ class 鱼搭子:
             return
         按住 = {'带图': 带图, '起': time.time(), '图': None}
         self._按住中 = 按住
+        # ⭐ 1.1.8：上一句说完之后耳朵会留一小会儿（默认 25 秒）——
+        #   复用它能省掉「重新打开音频流」那半秒，不然按下就说话，前面几个字是丢的。
+        自 = getattr(self, '_关耳定时', None)
+        if 自:
+            try:
+                self.根.after_cancel(自)
+            except Exception:
+                pass
+            self._关耳定时 = None
         if not getattr(self, '耳朵', None):
             try:
                 self._开耳朵()
@@ -1913,6 +1922,9 @@ class 鱼搭子:
                 self._按住自开耳朵 = True
             except Exception as e:
                 记右键('按住说话没开麦：%s' % e)
+        # 复用上一句留下的耳朵时，也要认回「这是我开的」—— 不然收尾后它再也没人关
+        if getattr(self, '耳朵', None) and not getattr(self, '通话', False):
+            self._按住自开耳朵 = True
         self.待显示.put(('提示', '· 按住中…松手就发（%s）' % ('带一张图' if 带图 else '只说话')))
         # ⭐ 1.0.8：截的是**按下那一下**的画面 —— 她按下时看到的、想让她看的，就是这一帧。
         #   （松手时才截，说话这会儿画面可能已经变了。）
@@ -1961,16 +1973,31 @@ class 鱼搭子:
         if 还有:
             self._按住待发 = None
         if getattr(self, '_按住自开耳朵', False) and not getattr(self, '通话', False):
+            # ⭐ 1.1.8：先不关 —— 留 25 秒（热着），下一句按下就能立刻听到。
+            #   一直没人用才真关，别让麦克风一直开着。
             self._按住自开耳朵 = False
             try:
-                if self.耳朵:
-                    self.耳朵.停()
-                    self.耳朵 = None
-                记右键('按住说话：临时麦克风关了')
+                旧定时 = getattr(self, '_关耳定时', None)
+                if 旧定时:
+                    self.根.after_cancel(旧定时)
+                self._关耳定时 = self.根.after(25000, self._关闲耳朵)
             except Exception:
                 pass
         if 还有:
             self.待显示.put(('提示', '· 没听清这句（按住说话）'))
+
+    def _关闲耳朵(self):
+        """按住说话留下的那个耳朵，闲着太久就关掉（有电话在跑就不动它）。"""
+        self._关耳定时 = None
+        if getattr(self, '通话', False):
+            return
+        try:
+            if getattr(self, '耳朵', None):
+                self.耳朵.停()
+                self.耳朵 = None
+            记右键('按住说话：闲下来了，麦克风关了')
+        except Exception:
+            pass
 
     def _送图文(self, 文本, 图=None):
         """一句话（可能带图）发进会话：没图就走原来的送话，有图走 /hands/talk。"""
