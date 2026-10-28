@@ -4,6 +4,7 @@
 不联网、不上传。识别结果通过 on_text 回调交出去。
 """
 import os
+import re
 import queue
 import sys
 import threading
@@ -228,6 +229,23 @@ class 耳朵:
         self._stop.set()
 
 
+def _端点键(名字):
+    """把「麦克风 (Realtek HD Audio Mic input)」这类名字压成同一个键。
+
+    同一只物理设备在 MME / DirectSound / WASAPI / WDM-KS 下面会各出现一次，
+    名字不一样但**括号里的端点名是同一个** —— 按端点名合并，比按整串名字比更准。
+    """
+    t = str(名字 or '').strip()
+    if not t:
+        return ''
+    m = re.findall(r'[（(]([^）)]+)[）)]', t)
+    k = (m[-1] if m else t).strip().lower()
+    # 去掉 API 层带来的尾巴和「输入/输出」这种词
+    k = re.sub(r'\s*[-—]?\s*(input|output|wave\s*\d*|wave|input device|output device)\s*$', '', k)
+    k = re.sub(r'\s+', ' ', k).strip(' -_')
+    return k
+
+
 def 列输入设备():
     """能录的麦克风列表：[{'编号','名字','声道','默认','主机'}]。
 
@@ -270,13 +288,17 @@ def 列输入设备():
               '默认': (默认号 is not None and i == 默认号), '主机': 主机名(x.get('hostapi'))}
 
         旧位 = None
+        键 = _端点键(名字)
         for k, 旧 in enumerate(次序):
             同 = (旧['名字'] == 名字)
+            # ⭐ 1.2.9：按**端点名**合并（同一只麦在 MME/DirectSound/WASAPI/WDM-KS 下各出现一次，
+            #   名字不一样但括号里是同一个端点）。以前只按整串名字比，于是同一只麦列了三四遍。
+            同端点 = bool(键) and 键 == _端点键(旧['名字'])
             # MME 的名字会被截到 30 来个字（括号都不闭合），所以前缀相同也算同一个设备；
             # 但太短的前缀别并（「麦克风 1」「麦克风 2」是两只）。
             像 = (not 同) and min(len(旧['名字']), len(名字)) >= 12 and (
                 名字.startswith(旧['名字']) or 旧['名字'].startswith(名字))
-            if 同 or 像:
+            if 同 or 同端点 or 像:
                 旧位 = k
                 break
         if 旧位 is None:
