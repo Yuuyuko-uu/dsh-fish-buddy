@@ -1955,15 +1955,17 @@ class 鱼搭子:
             return
         self._按住中 = None
         self._按住待发 = 按住
+        self._按住松手时 = time.time()
         # ⭐ 1.0.7：松手 = 我说完了 —— 立刻让它把这段定下来，别再等「安静几秒」
         try:
             if getattr(self, '耳朵', None):
                 self.耳朵.现在就说()
         except Exception:
             pass
-        # 定稿是立刻的，收尾（关临时麦克风）给 1.2 秒就够
+        # ⚠ 1.1.9：以前只等 1.2 秒就去收尾 —— 识别一句常常要 1.5 秒以上，
+        #   收尾先把「待发」清掉，识别结果随后到了就被当成「没人该在听」丢掉（带图那路更慢，更容易中）。
         try:
-            self.根.after(1200, lambda: self._按住收尾(按住))
+            self.根.after(4000, lambda: self._按住收尾(按住))
         except Exception:
             self._按住收尾(按住)
 
@@ -2465,7 +2467,8 @@ class 鱼搭子:
         # ⚠ 1.0.5：电话没开、也没在按住说话 —— 这时候收到识别结果说明有残留的耳朵在跑，
         #   绝不能往会话里发（以前就是这么一直发的）。
         if not getattr(self, '通话', False) and getattr(self, '_按住待发', None) is None \
-                and getattr(self, '_按住中', None) is None:
+                and getattr(self, '_按住中', None) is None \
+                and time.time() - float(getattr(self, '_按住松手时', 0) or 0) > 15:
             记右键('没人该在听，却听到一句，跳过：%s' % str(文本)[:20])
             return
         # 同一句话两秒内只算一次（两路麦克风/线程偶尔会各报一遍）
