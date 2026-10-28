@@ -1894,6 +1894,10 @@ class 鱼搭子:
             #   包一层，出错也继续转。
             try:
                 if 按下 and not 上次:
+                    try:
+                        记右键('按下说话键：%s（键码 %d）' % ('带图' if 带图 else '只说话', 键))
+                    except Exception:
+                        pass
                     self._按住开始(带图)
                 elif (not 按下) and 上次:
                     self._按住松手(带图)
@@ -1933,6 +1937,11 @@ class 鱼搭子:
         # 复用上一句留下的耳朵时，也要认回「这是我开的」—— 不然收尾后它再也没人关
         if getattr(self, '耳朵', None) and not getattr(self, '通话', False):
             self._按住自开耳朵 = True
+        try:
+            if getattr(self, '耳朵', None):
+                self.耳朵.只听(True)
+        except Exception:
+            pass
         self.待显示.put(('提示', '· 按住中…松手就发（%s）' % ('带一张图' if 带图 else '只说话')))
         # ⭐ 1.0.8：截的是**按下那一下**的画面 —— 她按下时看到的、想让她看的，就是这一帧。
         #   （松手时才截，说话这会儿画面可能已经变了。）
@@ -1968,6 +1977,12 @@ class 鱼搭子:
         try:
             if getattr(self, '耳朵', None):
                 self.耳朵.现在就说()
+        except Exception:
+            pass
+        # ⭐ 1.2.1：定稿之后就闭嘴 —— 松手以后旁边说话不再被录、也不再发出去
+        try:
+            if getattr(self, '耳朵', None):
+                self.耳朵.只听(False)
         except Exception:
             pass
         # ⚠ 1.1.9：以前只等 1.2 秒就去收尾 —— 识别一句常常要 1.5 秒以上，
@@ -2488,8 +2503,7 @@ class 鱼搭子:
         # ⚠ 1.0.5：电话没开、也没在按住说话 —— 这时候收到识别结果说明有残留的耳朵在跑，
         #   绝不能往会话里发（以前就是这么一直发的）。
         if not getattr(self, '通话', False) and getattr(self, '_按住待发', None) is None \
-                and getattr(self, '_按住中', None) is None \
-                and time.time() - float(getattr(self, '_按住松手时', 0) or 0) > 15:
+                and getattr(self, '_按住中', None) is None:
             记右键('没人该在听，却听到一句，跳过：%s' % str(文本)[:20])
             return
         # 同一句话两秒内只算一次（两路麦克风/线程偶尔会各报一遍）

@@ -52,6 +52,9 @@ class 耳朵:
         self._q = queue.Queue()
         self._stop = threading.Event()
         self._马上 = threading.Event()   # ⭐ 1.0.7：松手了，立刻定稿
+        # ⭐ 1.2.1：麦克风可以一直开着（启动快），但**只有按着说话的那段时间才真的听**。
+        #   以前开着就一直识别，松手之后旁边说话也会被录进去、发出去。
+        self._收听中 = True
         self._识别器 = None
         self._vad = None
 
@@ -141,6 +144,8 @@ class 耳朵:
                         self._峰值 = max(self._峰值, float(abs(chunk).max()))
                     except Exception:
                         pass
+                    if not getattr(self, '_收听中', True):
+                        continue        # 没按着说话：声音照收（流不中断），但不进识别
                     self._vad.accept_waveform(chunk)
                     if self._马上.is_set():
                         self._马上.clear()
@@ -173,6 +178,10 @@ class 耳朵:
             if text:
                 self.记一笔('听到：' + text)
                 self.on_text(text)
+
+    def 只听(self, 开):
+        """⭐ 1.2.1：按着说话才听；松手就闭嘴（麦克风不关，起得快）。"""
+        self._收听中 = bool(开)
 
     def 现在就说(self):
         """⭐ 1.0.7：按住说话松手 = 我说完了，别再等「安静几秒」——立刻把这段定下来。"""
