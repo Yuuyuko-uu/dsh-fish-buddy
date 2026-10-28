@@ -1636,10 +1636,16 @@ class 鱼搭子:
         if getattr(self, '游戏模式', False):
             self._退出游戏()
         else:
-            self.当前页 = '游戏'
-            if self.面板:
-                self.面板.withdraw()
+            # ⚠ 1.1.5：这里以前会 `面板.withdraw()` —— 在设置页点它，整个设置页就没了。
+            #   现在只进游戏模式、不碰面板；开着设置页的话把它留在最上面。
             self._进游戏模式()
+            try:
+                if self.面板 and self.当前页 == '设置':
+                    self.面板.attributes('-topmost', True)
+                    self.面板.deiconify()
+                    self.面板.lift()
+            except Exception:
+                pass
         self._刷功能行()
 
     def _切电话开关(self):
@@ -1651,8 +1657,13 @@ class 鱼搭子:
 
     def _切陪看开关(self):
         if not self.陪看程序:
-            # 还没建过陪看页：先建（建的时候会挂上陪看那个界面）
-            self._切页('陪看')
+            # ⚠ 1.1.5：在设置页点这盏灯不能把页面切走（切走就等于把设置页关了）。
+            if self.当前页 == '设置':
+                if '陪看' not in self.页框:
+                    self._建功能页('陪看')
+            else:
+                # 还没建过陪看页：先建（建的时候会挂上陪看那个界面）
+                self._切页('陪看')
         if getattr(self.陪看程序, 'cap', None):
             self.陪看程序.stop()
             # ⭐ 1.1.1：陪看是全关 —— 它顺手开的那个电话也一起挂掉。
@@ -2008,6 +2019,9 @@ class 鱼搭子:
                 字号=int(配置.get('框字号') or 20),
                 菜单=self._弹幕框菜单, 双击=self._退出游戏, 设置=self._开设置)
             self.弹幕框.字体路 = _字体路(配置.get('框字体') or 配置.get('弹幕字体'))
+            # ⭐ 1.1.5：记下这次是用哪套参数建的，之后「存设置」就不会白重建一遍
+            self._框签名 = (配置.get('框字号'), 配置.get('框字体'), 配置.get('弹幕框宽'),
+                          配置.get('弹幕框位置'), bool(配置.get('弹幕框开', True)))
             try:
                 记右键('游戏模式：弹幕框建好了（%dx%d）' % (self.弹幕框.宽, self.弹幕框.高))
             except Exception:
@@ -2059,8 +2073,15 @@ class 鱼搭子:
                     记右键('改飘的弹幕没成：%s' % e)
                 except Exception:
                     pass
-        # 框：字号/字体/宽度变了，整块重画一遍（里面已经攒下的那几句留着）
+        # 框：**只有真改了框相关的几项**才整块重画（字号/字体/宽/位置/开关）。
+        # ⚠ 1.1.5：以前每存一次都「关掉旧框、建个新框」—— 建窗是置顶的，
+        #   设置页那边每敲一个字就被抢一次焦点、闪一下，弹幕也跟着卡。
         try:
+            新签名 = (配置.get('框字号'), 配置.get('框字体'), 配置.get('弹幕框宽'),
+                      配置.get('弹幕框位置'), bool(配置.get('弹幕框开', True)))
+            旧签名 = getattr(self, '_框签名', None)
+            if 新签名 == 旧签名:
+                return '按新设置来了'
             旧 = self.弹幕框
             已有 = list(getattr(旧, '行们', [])) if 旧 is not None else []
             if 旧 is not None:
@@ -2071,12 +2092,13 @@ class 鱼搭子:
                 self.弹幕框 = None
             屏 = (0, 0, int(self.根.winfo_screenwidth()), int(self.根.winfo_screenheight()))
             if 配置.get('弹幕框开', True):
-                新 = self._建弹幕框(屏)
+                self._建弹幕框(屏)
                 try:
                     for 句 in 已有[-12:]:
-                        新.加(句)
+                        self.弹幕框.加(句)
                 except Exception:
                     pass
+            self._框签名 = 新签名
         except Exception as e:
             try:
                 记右键('重画弹幕框没成：%s' % e)
