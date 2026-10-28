@@ -1031,6 +1031,12 @@ class 鱼搭子:
         # ⭐ 1.2.2：起来 15 秒后自动记 90 秒「按下的键码」—— 查某个键到底报多少用
         self.根.after(15000, lambda: self._按键自检(90))
         try:
+            import ctypes as _ct
+            是管理员 = bool(_ct.windll.shell32.IsUserAnAdmin())
+        except Exception:
+            是管理员 = False
+        记右键('权限：%s（游戏里按键要能读到，必须是「管理员」）' % ('管理员' if 是管理员 else '普通用户'))
+        try:
             记右键('说话键（从配置读到的）：只说话=%s 带图=%s'
                    % (配置.get('按住说键'), 配置.get('按住说图键')))
         except Exception:

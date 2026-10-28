@@ -67,4 +67,7 @@ EXE = EXE(
     console=False,          # 无黑窗
     disable_windowed_traceback=False,
     icon=os.path.join(根, 'assets', '鱼搭子.ico'),
+    # ⭐ 1.2.6：**默认以管理员身份启动** —— 游戏（尤其是以管理员权限跑的游戏）
+    #   会挡住普通进程读键盘状态，导致按住说话的热键在游戏里彻底失效。
+    uac_admin=True,
 )
