@@ -1786,15 +1786,19 @@ class 鱼搭子:
             最长 = float(配置.get('游戏截图最长秒') or 120)
         except Exception:
             最短, 最长 = 45.0, 120.0
-        最短 = max(10.0, min(最短, 3600.0))
+        # ⚠ 1.1.2：以前下限写死 10 秒 —— 设置里填 5 会被悄悄抬成 10，看着像「说了 5 秒却半天不来」。
+        最短 = max(3.0, min(最短, 3600.0))
         最长 = max(最短 + 1.0, min(最长, 7200.0))
         停 = threading.Event()
         self._截图停 = 停
+        记右键('游戏截图：%d~%d 秒一张（第一张先等 3 秒）' % (最短, 最长))
 
         def 跑():
             import random
+            第一张 = True
             while not 停.is_set():
-                间隔 = 最短 + (最长 - 最短) * random.random()
+                间隔 = 3.0 if 第一张 else 最短 + (最长 - 最短) * random.random()
+                第一张 = False
                 睡到 = time.time() + 间隔
                 while time.time() < 睡到 and not 停.is_set():
                     time.sleep(0.5)
@@ -2073,6 +2077,14 @@ class 鱼搭子:
             pass
         self.弹幕 = None
         self.弹幕框 = None
+        # ⭐ 1.1.2：退出游戏模式时把气泡对象扔掉重建 —— 游戏模式里它被藏过、位置也是旧的球框，
+        #   留着容易出现「退出来之后再也不冒气泡」。设成 None，下一句话会按新球位置重新建一个。
+        try:
+            if getattr(self, '气泡', None) is not None:
+                self.气泡.藏()
+        except Exception:
+            pass
+        self.气泡 = None
         try:
             self.根.deiconify()
         except Exception:
@@ -2508,10 +2520,19 @@ class 鱼搭子:
             elif 谁 == '回复':
                 if getattr(self, '游戏模式', False):
                     # ⭐ 0.7.0：游戏模式里不冒气泡，改成弹幕滑过去 + 进弹幕框
+                    try:
+                        记右键('来了一句回复（游戏模式里）→ 走弹幕')
+                    except Exception:
+                        pass
                     self._弹一句(内容)
                     self.未读回话.append(内容)
                     self.未读回话 = self.未读回话[-50:]
                     continue
+                try:
+                    记右键('来了一句回复 → 冒气泡（%d 字，气泡开=%s）'
+                           % (len(str(内容)), bool(self.配置.get('气泡开', True))))
+                except Exception:
+                    pass
                 self._冒气泡(内容)
                 if self.通话 and hasattr(self, '流水'):
                     self._写('大肥鱼：' + 内容)
