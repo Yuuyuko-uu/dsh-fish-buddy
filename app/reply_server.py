@@ -13,10 +13,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
 class 回话口:
-    def __init__(self, on_text, 端口=8778, on_devices=None, on_device=None):
+    def __init__(self, on_text, 端口=8778, on_devices=None, on_device=None, on_shot=None):
         self.on_text = on_text
         self.on_devices = on_devices        # () -> [{'编号','名字','声道','默认'}, ...]
         self.on_device = on_device          # (编号, 名字) -> 一句人话
+        self.on_shot = on_shot              # ⭐ 1.1.1：() -> (图字节, 尺寸) 或 None（她要自己开口时先要张图）
         self.端口 = int(端口 or 8778)
         self.状态 = {'起没起': False, '端口': self.端口, '错': '', '收到': 0}
         self._服务 = None
@@ -30,6 +31,7 @@ class 回话口:
         回调 = self.on_text
         列设备 = self.on_devices
         设设备 = self.on_device
+        拍一张 = self.on_shot
         状态 = self.状态
 
         class 处理(BaseHTTPRequestHandler):
@@ -91,6 +93,24 @@ class 回话口:
                         return
                     状态['收到'] += 1
                     self._回(200, {'ok': True, '说': 说法 or '换好了'})
+                    return
+
+                if self.path.startswith('/hands/shot'):
+                    if not callable(拍一张):
+                        self._回(200, {'ok': False, '说': '这个版本的挂件还不能拍照'})
+                        return
+                    try:
+                        结果 = 拍一张()
+                    except Exception as e:
+                        self._回(200, {'ok': False, '说': '拍不了：%s' % e})
+                        return
+                    if not 结果:
+                        self._回(200, {'ok': False, '说': '这一下没抓到画面'})
+                        return
+                    字节, 尺寸 = 结果
+                    import base64 as _b64
+                    self._回(200, {'ok': True, '图片': _b64.b64encode(字节).decode('ascii'),
+                                  '尺寸': '%dx%d' % (尺寸[0], 尺寸[1])})
                     return
 
                 if not self.path.startswith('/hands/reply'):

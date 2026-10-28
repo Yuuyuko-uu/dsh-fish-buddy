@@ -1008,6 +1008,8 @@ class 鱼搭子:
                 端口=配置.get('回话端口', 8778),
                 on_devices=self._列麦克风,
                 on_device=self.换麦克风,
+                # ⭐ 1.1.1：她要自己开口时，插件来这里要一张当下的画面
+                on_shot=self._拍一张给插件,
             )
             if 口.开始():
                 self.回话口 = 口
@@ -1633,6 +1635,12 @@ class 鱼搭子:
             self._切页('陪看')
         if getattr(self.陪看程序, 'cap', None):
             self.陪看程序.stop()
+            # ⭐ 1.1.1：陪看是全关 —— 它顺手开的那个电话也一起挂掉。
+            #   不然人已经把陪看关了，麦克风还开着，话还在往会话里送。
+            if getattr(self, '_电话陪看开的', False) and self.通话:
+                self._挂断()
+                self._写('陪看关了，顺手开的电话也一起关了')
+            self._电话陪看开的 = False
         else:
             try:
                 self.陪看程序.start()
@@ -1642,6 +1650,7 @@ class 鱼搭子:
             try:
                 if getattr(self.陪看程序, 'cap', None) and 配置.get('陪看带麦克风', True) and not self.通话:
                     self._开通话()
+                    self._电话陪看开的 = True
             except Exception:
                 pass
         self._刷功能行()
@@ -1748,6 +1757,24 @@ class 鱼搭子:
             self.待显示.put(('提示', '· ' + 文))
         except Exception:
             pass
+
+    def _拍一张给插件(self):
+        """⭐ 1.1.1：插件（她要自己开口的时候）来要一张当下的画面。
+
+        截哪块跟「按住说话带图」一个口径：框过就用框，没框就整屏。
+        """
+        try:
+            import frames
+            框 = self._截图区('热键截图框')
+            图 = frames.抓(框)
+            if 图 is None:
+                return None
+            字节, 尺寸 = frames.压(图, 1280, 75)
+            记右键('插件来要图：给了 %dKB %dx%d' % (len(字节) // 1024, 尺寸[0], 尺寸[1]))
+            return 字节, 尺寸
+        except Exception as e:
+            记右键('插件来要图，没拍成：%s' % e)
+            return None
 
     def _开游戏截图(self):
         """游戏模式里隔一会儿自己截一张递给她 —— 不然她没画面，只能瞎猜。"""

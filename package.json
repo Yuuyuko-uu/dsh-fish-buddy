@@ -1,6 +1,6 @@
 {
   "name": "dsh-fish-buddy",
-  "version": "0.4.7",
+  "version": "0.4.8",
   "description": "鱼搭子 · DSH 这半边：桌面小挂件说的话送进你绑定的会话，她的回话再递回挂件。挂件是独立程序，这里只负责接线。",
   "license": "MIT",
   "type": "module",

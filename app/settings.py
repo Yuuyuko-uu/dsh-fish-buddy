@@ -434,10 +434,11 @@ class 设置页:
             pass
 
         def 好了(框):
-            c = dict(self.应用.配置)
+            c = dict(paths.读配置() or {})
             c['抽帧框'] = [int(v) for v in 框]
             if paths.写配置(c):
                 self.应用.配置.update(c)
+                self.配置.update(c)
             self._刷抽帧框说明()
             self.说.set('截图区域框好了：%d × %d' % (框[2], 框[3]))
             try:
@@ -454,10 +455,11 @@ class 设置页:
         根.after(120, lambda: ocr.开框选(根, 好了, 算了))
 
     def _清抽帧框(self):
-        c = dict(self.应用.配置)
+        c = dict(paths.读配置() or {})
         c.pop('抽帧框', None)
         if paths.写配置(c):
             self.应用.配置.update(c)
+            self.配置.update(c)
         self._刷抽帧框说明()
         self.说.set('截图改回整屏')
 
@@ -494,11 +496,12 @@ class 设置页:
             pass
 
         def 框好了(框):
-            c = dict(self.应用.配置)
+            c = dict(paths.读配置() or {})
             c['ocr_box'] = [int(v) for v in 框]
             c['ocr开'] = True
             if paths.写配置(c):
                 self.应用.配置.update(c)
+                self.配置.update(c)
             self._刷字幕框说明()
             self.说.set('字幕区框好了：%d × %d' % (框[2], 框[3]))
             try:
@@ -517,7 +520,7 @@ class 设置页:
         根.after(120, lambda: ocr.开框选(根, 框好了, 算了))
 
     def _清字幕框(self):
-        c = dict(self.应用.配置)
+        c = dict(paths.读配置() or {})
         c['ocr开'] = False
         c.pop('ocr_box', None)
         if paths.写配置(c):
@@ -730,7 +733,7 @@ class 设置页:
             选 = None
         if not 选:
             return
-        c = dict(self.应用.配置)
+        c = dict(paths.读配置() or {})
         c[键] = 选
         try:
             if paths.写配置(c):
@@ -751,7 +754,7 @@ class 设置页:
         self._选色到('弹幕描边', self.弹幕边块, '#28283c')
 
     def _存游戏(self):
-        c = dict(self.应用.配置)
+        c = dict(paths.读配置() or {})
         c['弹幕开'] = bool(self.弹幕勾.get())
         c['弹幕框开'] = bool(self.弹幕框勾.get())
         c['弹幕框位置'] = str(self.框位置.get() or '右下')
@@ -1020,7 +1023,7 @@ class 设置页:
                                    % (框[0], 框[1], 框[2], 框[3]))
 
     def _存截图(self):
-        c = dict(self.应用.配置)
+        c = dict(paths.读配置() or {})
         c['游戏截图开'] = bool(self.游戏截图勾.get())
         try:
             c['游戏截图最短秒'] = max(5, min(3600, int(str(self.截短.get()).strip() or 45)))
@@ -1053,7 +1056,7 @@ class 设置页:
 
         def 完成(框):
             try:
-                c = dict(self.应用.配置)
+                c = dict(paths.读配置() or {})
                 c[键] = [int(v) for v in 框]
                 if paths.写配置(c):
                     self.应用.配置.update(c)
@@ -1077,7 +1080,7 @@ class 设置页:
             pass
 
     def _清截图框(self, 键):
-        c = dict(self.应用.配置)
+        c = dict(paths.读配置() or {})
         c.pop(键, None)
         if paths.写配置(c):
             self.应用.配置.update(c)
@@ -1103,7 +1106,7 @@ class 设置页:
                 键 = int(getattr(e, 'keycode', 0) or 0)
                 if 键 <= 0:
                     return
-                c = dict(self.应用.配置)
+                c = dict(paths.读配置() or {})
                 c[键项] = 键
                 c[名项] = str(getattr(e, 'keysym', '') or '')
                 if paths.写配置(c):
@@ -1263,7 +1266,7 @@ class 设置页:
         框搜.focus_set()
 
     def _存气泡(self):
-        c = dict(self.配置)
+        c = dict(paths.读配置() or {})
         c['气泡开'] = bool(self.气泡勾.get())
         try:
             c['气泡字色'] = str(self.气泡字色.get()).strip() or '#1c3a52'
@@ -1375,7 +1378,7 @@ class 设置页:
         self.麦说明.configure(text=提示, fg=字次)
 
     def _选麦克风(self, 编号, 名字):
-        c = dict(self.应用.配置)
+        c = dict(paths.读配置() or {})
         c['mic_device'] = 编号
         c['mic_device_name'] = 名字 or ''
         if not paths.写配置(c):
@@ -1458,7 +1461,7 @@ class 设置页:
 
     # ⭐ 0.6.1：勾了「跟着系统缩放」才会乘屏幕缩放（默认不勾 = 纯像素）
     def _存跟随(self):
-        c = dict(self.应用.配置)
+        c = dict(paths.读配置() or {})
         c['跟随系统缩放'] = bool(self.跟随勾.get())
         try:
             落 = paths.写配置(c)
@@ -1492,7 +1495,7 @@ class 设置页:
             self.说.set('已经自动存好了')
 
     def _保存配置(self):
-        c = dict(self.应用.配置)
+        c = dict(paths.读配置() or {})
         try:
             c['dsh_port'] = max(1024, min(65535, int(self.端口.get() or 8777)))
         except Exception:
@@ -1537,7 +1540,7 @@ class 设置页:
     # ---------- 语音：安静几秒算一句（0.5.0） ----------
     def _存语音(self):
         """把「安静几秒算一句」存进配置；电话正开着就让主线程重开一次耳朵，立刻生效。"""
-        c = dict(self.应用.配置)
+        c = dict(paths.读配置() or {})
         try:
             v = float(str(self.静音秒.get()).strip() or 2.0)
         except Exception:
@@ -1572,7 +1575,7 @@ class 设置页:
             pass
 
     def _存陪看(self):
-        c = dict(self.应用.配置)
+        c = dict(paths.读配置() or {})
         c['字幕送给大肥鱼'] = bool(self.字幕勾.get())
         c['陪看带麦克风'] = bool(self.麦克风勾.get())
         try:
@@ -1626,7 +1629,7 @@ class 设置页:
             except Exception as e:
                 self.说.set('删不掉：' + str(e))
                 return
-        c = dict(self.应用.配置)
+        c = dict(paths.读配置() or {})
         c['开机启动'] = bool(self.开机勾.get())
         paths.写配置(c)
         self.应用.配置.update(c)

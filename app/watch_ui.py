@@ -1300,6 +1300,27 @@ class App:
         self.btn_stop.configure(state='disabled')
         self.btn_start.configure(state='normal')
         self.status.configure(text='已停止')
+        # ⭐ 1.1.1：陪看停了要跟插件说一声 —— 不然那边攒着还没发出去的字幕，
+        #   会在后面几轮里继续往会话里灌（表现就是「关了陪看还在发字幕」）。
+        self._通知插件停了()
+
+    def _通知插件停了(self):
+        try:
+            import json as _j
+            import urllib.request as _u
+            端口 = int(paths.读配置().get('dsh_port') or 8777)
+            体 = _j.dumps({'开': False}, ensure_ascii=False).encode('utf-8')
+            请求 = _u.Request('http://127.0.0.1:%d/hands/watch' % 端口, data=体,
+                             headers={'Content-Type': 'application/json'})
+            无代理 = _u.build_opener(_u.ProxyHandler({}))
+            with 无代理.open(请求, timeout=3) as r:
+                r.read()
+            diag('已告诉插件：陪看停了，别再把攒着的字幕发进去')
+        except Exception as e:
+            try:
+                diag('告诉插件「陪看停了」没成：%s' % e)
+            except Exception:
+                pass
 
     def _write(self, text, ev):
         replace = bool(self.live) or (ev == 'merge')
