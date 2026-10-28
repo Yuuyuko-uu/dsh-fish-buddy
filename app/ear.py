@@ -145,7 +145,19 @@ class 耳朵:
                     except Exception:
                         pass
                     if not getattr(self, '_收听中', True):
-                        continue        # 没按着说话：声音照收（流不中断），但不进识别
+                        # 没按着说话：声音不进识别（麦克风只是开着，起得快）。
+                        # ⚠ 1.2.5：但**松手定稿的请求**必须照样处理 ——
+                        #   以前这一句 `continue` 把松手后那一刻的 flush 也一起跳过了，
+                        #   于是「按了、也截了图，但话一直发不出去」。
+                        if getattr(self, '_马上', None) is not None and self._马上.is_set():
+                            self._马上.clear()
+                            try:
+                                self._vad.flush()
+                                self.记一笔('松手了：立刻定稿（没按着也照样定）')
+                            except Exception:
+                                pass
+                            self._排空()
+                        continue
                     self._vad.accept_waveform(chunk)
                     if self._马上.is_set():
                         self._马上.clear()

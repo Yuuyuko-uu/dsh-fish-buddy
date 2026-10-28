@@ -1032,7 +1032,7 @@ class 设置页:
         键 = int(self.配置.get(键项) or 0)
         if 键 <= 0:
             return '还没设'
-        return '现在是：%s' % (名 or ('键码 %d' % 键))
+        return '现在是：%s（键码 %d）' % (名 or '—', 键)
 
     def _刷截图说明(self):
         for 键, 标签 in (('游戏截图框', getattr(self, '拍框说', None)),

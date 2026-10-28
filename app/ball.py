@@ -1028,6 +1028,13 @@ class 鱼搭子:
         self.根.after(120, self._刷屏)
         self.根.after(500, self._看缩放)     # 远程调了屏幕缩放 → 自己跟着变
         self.根.after(900, self._热键轮询)   # ⭐ 1.0.2：全局截图热键
+        # ⭐ 1.2.2：起来 15 秒后自动记 90 秒「按下的键码」—— 查某个键到底报多少用
+        self.根.after(15000, lambda: self._按键自检(90))
+        try:
+            记右键('说话键（从配置读到的）：只说话=%s 带图=%s'
+                   % (配置.get('按住说键'), 配置.get('按住说图键')))
+        except Exception:
+            pass
         # ⭐ 1.0.6：一起来就把语音模型读进内存（后台线程）——
         #   不然第一次按电话/按住说话要等它加载好几秒，看着像「按了没反应」。
         try:
@@ -1871,6 +1878,36 @@ class 鱼搭子:
         self._截图停 = None
 
     # ---------- 按住说话：按住听，松开把这句（可能还有一张图）发过去 ----------
+    def _按键自检(self, 秒=30):
+        """⭐ 1.2.3：长期盯着键盘 —— 只要按下了「不是那两个说话键」的键，就记一行。
+
+        这样不用赶时间：你什么时候按都行，日志里会留下它真实的键码。
+        """
+        self._自检见 = {}
+        记右键('按键自检：常开（除 188/190 之外的键，按下就记一行）')
+
+    def _自检一步(self):
+        """常开的按键观察：只记「第一次见到的、不是 188/190 的键码」，不刷屏。"""
+        import ctypes as _ct
+        见 = getattr(self, '_自检见', None)
+        if 见 is None:
+            见 = self._自检见 = {}
+        见过 = getattr(self, '_自检记过', None)
+        if 见过 is None:
+            见过 = self._自检记过 = set()
+        for 码 in range(8, 256):
+            try:
+                下 = bool(_ct.windll.user32.GetAsyncKeyState(码) & 0x8000)
+            except Exception:
+                continue
+            上 = 见.get(码, False)
+            见[码] = 下
+            if 下 and not 上:
+                # 只记「第一次见到的、不是那两个说话键的」—— 免得打字把日志刷满
+                if 码 not in (188, 190) and 码 not in 见过:
+                    见过.add(码)
+                    记右键('自检：新键码 %d' % 码)
+
     def _热键轮询(self):
         """每 80ms 看一次两个说话键是按下去还是松开了（不挂键盘钩子，免得出事）。"""
         for 键项, 带图 in (('按住说键', False), ('按住说图键', True)):
@@ -1894,6 +1931,7 @@ class 鱼搭子:
             #   包一层，出错也继续转。
             try:
                 if 按下 and not 上次:
+                    self._按住按下时 = time.time()
                     try:
                         记右键('按下说话键：%s（键码 %d）' % ('带图' if 带图 else '只说话', 键))
                     except Exception:
@@ -1906,6 +1944,10 @@ class 鱼搭子:
                     记右键('按住说话按键处理出错：%s' % e)
                 except Exception:
                     pass
+        try:
+            self._自检一步()
+        except Exception:
+            pass
         try:
             self.根.after(80, self._热键轮询)
         except Exception:
@@ -2502,8 +2544,9 @@ class 鱼搭子:
             return
         # ⚠ 1.0.5：电话没开、也没在按住说话 —— 这时候收到识别结果说明有残留的耳朵在跑，
         #   绝不能往会话里发（以前就是这么一直发的）。
+        刚按过 = time.time() - float(getattr(self, '_按住按下时', 0) or 0) < 8
         if not getattr(self, '通话', False) and getattr(self, '_按住待发', None) is None \
-                and getattr(self, '_按住中', None) is None:
+                and getattr(self, '_按住中', None) is None and not 刚按过:
             记右键('没人该在听，却听到一句，跳过：%s' % str(文本)[:20])
             return
         # 同一句话两秒内只算一次（两路麦克风/线程偶尔会各报一遍）
