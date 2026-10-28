@@ -1068,7 +1068,8 @@ class 设置页:
                       % ('开' if c['游戏截图开'] else '关', c['游戏截图最短秒'], c['游戏截图最长秒']))
             try:
                 if getattr(self.应用, '游戏模式', False):
-                    self.应用._开游戏截图()
+                    # ⚠ 1.1.7：改参数只是「换个间隔接着跑」，不能把「第一张先等 3 秒」重来
+                    self.应用._开游戏截图(从头=False)
             except Exception:
                 pass
         else:
