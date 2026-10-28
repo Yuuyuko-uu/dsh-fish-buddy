@@ -1701,6 +1701,14 @@ class 鱼搭子:
             if 配置.get('弹幕框开', True):
                 self._建弹幕框(屏)
         self._开游戏截图()
+        # ⭐ 1.1.3：游戏模式也能说话 —— 按设置把麦克风开起来（退出时再关）
+        try:
+            if 配置.get('游戏开麦克风', False) and not getattr(self, '通话', False):
+                self._开通话()
+                self._电话游戏开的 = True
+                记右键('游戏模式：麦克风也开着了')
+        except Exception as e:
+            记右键('游戏模式开麦克风没成：%s' % e)
         try:
             self.气泡.藏()
         except Exception:
@@ -2077,6 +2085,14 @@ class 鱼搭子:
             pass
         self.弹幕 = None
         self.弹幕框 = None
+        # ⭐ 1.1.3：进游戏模式时顺手开的麦克风，退出来一起关
+        try:
+            if getattr(self, '_电话游戏开的', False) and getattr(self, '通话', False):
+                self._挂断()
+                记右键('退出游戏模式：顺手开的麦克风也关了')
+            self._电话游戏开的 = False
+        except Exception:
+            pass
         # ⭐ 1.1.2：退出游戏模式时把气泡对象扔掉重建 —— 游戏模式里它被藏过、位置也是旧的球框，
         #   留着容易出现「退出来之后再也不冒气泡」。设成 None，下一句话会按新球位置重新建一个。
         try:
@@ -2513,10 +2529,13 @@ class 鱼搭子:
                 # 设置页 / DSH 那边改了麦克风：在主线程里重开耳朵（HTTP 线程不碰 Tk）
                 try:
                     if self.通话:
+                        记右键('设置里换了麦克风：重开耳朵')
                         self._挂断()
                         self._开通话()
-                except Exception:
-                    pass
+                        if not getattr(self, '通话', False):
+                            记右键('⚠ 换麦之后电话没开起来（现在显示「关」）')
+                except Exception as e:
+                    记右键('换麦出错：%s' % e)
             elif 谁 == '回复':
                 if getattr(self, '游戏模式', False):
                     # ⭐ 0.7.0：游戏模式里不冒气泡，改成弹幕滑过去 + 进弹幕框

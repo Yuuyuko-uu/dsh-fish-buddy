@@ -148,6 +148,21 @@ class 设置页:
         for k, b in self.按钮们.items():
             b.configure(bg=(淡卡 if k == 名 else 淡底), fg=(蓝 if k == 名 else 字深))
         self.当前 = 名
+        # ⭐ 1.1.3：点到「游戏」这一页，就把游戏模式开起来 ——
+        #   悬浮窗收进弹幕框、弹幕层出来，设置窗留在最上面可以接着调。
+        if 名 == '游戏':
+            try:
+                self.应用._进游戏模式()
+                面 = getattr(self.应用, '面板', None)
+                if 面 is not None:
+                    面.attributes('-topmost', True)
+                    面.deiconify()
+                    面.lift()
+            except Exception as e:
+                try:
+                    self.说.set('进游戏模式没成：%s' % e)
+                except Exception:
+                    pass
         # ⭐ 0.6.3：没有滚动条了，滚轮就是唯一的滚法 —— 挂到整窗上，鼠标在哪个控件上都能滚
         try:
             画 = self.画们[self.页名.index(名)]
@@ -708,6 +723,24 @@ class 设置页:
                   relief='flat', font=('Microsoft YaHei UI', 8), pady=2, padx=8).pack(side='left')
         tk.Label(卡3, text='　（塞一条「这是一条弹幕」看效果；双击弹幕框就回球）', bg=淡卡, fg=字次,
                  font=('Microsoft YaHei UI', 8)).pack(side='left')
+
+        # ⭐ 1.1.3：游戏模式里也要能说话
+        卡麦 = self._卡(框)
+        self.游戏麦勾 = tk.BooleanVar(value=bool(self.配置.get('游戏开麦克风', False)))
+        tk.Checkbutton(卡麦, text='进游戏模式也开着麦克风（游戏里说话也发得出去）',
+                       variable=self.游戏麦勾, command=self._存游戏麦, bg=淡卡, fg=字深,
+                       activebackground=淡卡, selectcolor=淡卡, anchor='w',
+                       font=('Microsoft YaHei UI', 字号)).pack(fill='x')
+        tk.Label(卡麦, text='不开也行：按住说话那个键哪个模式都能用。', bg=淡卡, fg=字次,
+                 font=('Microsoft YaHei UI', 8)).pack(fill='x', pady=(4, 0))
+
+    def _存游戏麦(self):
+        c = dict(paths.读配置() or {})
+        c['游戏开麦克风'] = bool(self.游戏麦勾.get())
+        if paths.写配置(c):
+            self.应用.配置.update(c)
+            self.配置.update(c)
+            self.说.set('游戏模式里的麦克风：' + ('开' if c['游戏开麦克风'] else '关'))
 
     def _定弹幕字体(self, 名):
         self.弹幕字体.set(名 or '站酷快乐体')
@@ -1556,11 +1589,9 @@ class 设置页:
                 self.说.set('存好了：安静 %s 秒算一句' % c['断句静音秒'])
             except Exception:
                 pass
-        try:
-            if getattr(self.应用, '通话', False):
-                self.应用.待显示.put(('换麦', None))
-        except Exception:
-            pass
+        # ⚠ 1.1.3：这里以前会发「换麦」→ 挂断再开通话。
+        #   只是改「安静几秒算一句」，却把正在打电话的电话毙掉，重开还可能失败。
+        #   现在只存数字（新值下一次开麦时生效），不动正在跑的电话。
 
     def _闪存好(self, 提示位):
         try:
