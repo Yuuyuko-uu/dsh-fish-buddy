@@ -1309,7 +1309,7 @@ class App:
             import json as _j
             import urllib.request as _u
             端口 = int(paths.读配置().get('dsh_port') or 8777)
-            体 = _j.dumps({'开': False}, ensure_ascii=False).encode('utf-8')
+            体 = _j.dumps({'watch': False}, ensure_ascii=False).encode('utf-8')
             请求 = _u.Request('http://127.0.0.1:%d/hands/watch' % 端口, data=体,
                              headers={'Content-Type': 'application/json'})
             无代理 = _u.build_opener(_u.ProxyHandler({}))
