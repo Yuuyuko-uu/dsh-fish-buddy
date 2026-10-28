@@ -1368,11 +1368,31 @@ class 设置页:
 
     # ---------- 麦克风 ----------
     def _刷麦克风(self):
+        # ⚠ 1.2.0：枚举音频设备能卡好几秒 —— 以前是在 Tk 主线程里直接调的，
+        #   一打开设置页整个界面就僵住（游戏模式的弹幕框也跟着点不动）。
+        #   现在先显示「正在找…」，枚举完了再回来填。
         try:
-            import ear as 耳朵模块
-            设备 = 耳朵模块.列输入设备()
+            self.麦说明.configure(text='正在找麦克风…', fg=字次)
         except Exception:
-            设备 = []
+            pass
+
+        def 找():
+            try:
+                import ear as 耳朵模块
+                设备 = 耳朵模块.列输入设备()
+            except Exception:
+                设备 = []
+            try:
+                self.父.after(0, lambda: self._填麦克风(设备))
+            except Exception:
+                pass
+        try:
+            import threading
+            threading.Thread(target=找, name='fishbuddy-mics', daemon=True).start()
+        except Exception:
+            self._填麦克风([])
+
+    def _填麦克风(self, 设备):
         菜单 = self.麦框['menu']
         try:
             菜单.delete(0, 'end')

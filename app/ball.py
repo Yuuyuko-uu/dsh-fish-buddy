@@ -1890,10 +1890,18 @@ class 鱼搭子:
                 记 = self._按着们 = {}
             上次 = 记.get(键项, False)
             记[键项] = 按下
-            if 按下 and not 上次:
-                self._按住开始(带图)
-            elif (not 按下) and 上次:
-                self._按住松手(带图)
+            # ⚠ 1.2.0：这里抛一个异常，整个轮询就停了（热键再也不响应）。
+            #   包一层，出错也继续转。
+            try:
+                if 按下 and not 上次:
+                    self._按住开始(带图)
+                elif (not 按下) and 上次:
+                    self._按住松手(带图)
+            except Exception as e:
+                try:
+                    记右键('按住说话按键处理出错：%s' % e)
+                except Exception:
+                    pass
         try:
             self.根.after(80, self._热键轮询)
         except Exception:
@@ -2364,9 +2372,22 @@ class 鱼搭子:
         if getattr(self, '耳朵', None) or getattr(self, '_开耳朵中', False):
             return
         self._开耳朵中 = True
+        # ⚠ 1.2.0：开耳朵里要**枚举音频设备**（找麦克风），这一步能卡好几秒。
+        #   以前是在 Tk 主线程里调的 → 一按说话键，整个界面（含游戏模式的弹幕框）冻住。
+        #   现在扔到后台线程去开，界面不受影响。
+        def 开():
+            try:
+                self._开耳朵_真的()
+            except Exception as e:
+                try:
+                    记右键('开耳朵失败了：%s' % e)
+                except Exception:
+                    pass
+            finally:
+                self._开耳朵中 = False
         try:
-            self._开耳朵_真的()
-        finally:
+            threading.Thread(target=开, name='fishbuddy-open-ear', daemon=True).start()
+        except Exception:
             self._开耳朵中 = False
 
     def _开耳朵_真的(self):
