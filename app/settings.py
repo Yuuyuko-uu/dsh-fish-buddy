@@ -571,8 +571,20 @@ class 设置页:
         框多.pack(side='left', padx=6, ipady=2)
         tk.Label(行字, text='条', bg=淡卡, fg=字次,
                  font=('Microsoft YaHei UI', 8)).pack(side='left')
+        # ⭐ 1.2.7：长句要连着飘，下一条什么时候出来自己调
+        行接 = tk.Frame(卡, bg=淡卡)
+        行接.pack(fill='x', pady=(6, 0))
+        tk.Label(行接, text='下一条什么时候出来', bg=淡卡, fg=字次,
+                 font=('Microsoft YaHei UI', 8)).pack(side='left')
+        self.弹幕接 = tk.StringVar(value=str(self.配置.get('弹幕接续') or 20))
+        框接 = tk.Entry(行接, textvariable=self.弹幕接, width=4, bg='#ffffff', relief='flat',
+                       font=('Microsoft YaHei UI', 字号), highlightthickness=1, highlightbackground=淡线)
+        框接.pack(side='left', padx=6, ipady=2)
+        tk.Label(行接, text='%　（上一条滑到屏幕这个位置就放下一条；数字越小接得越快，20 是默认）',
+                 bg=淡卡, fg=字次, font=('Microsoft YaHei UI', 8)).pack(side='left')
+
         # ⭐ 0.9.2：打回车 / 点到别处就存，跟桌面那几项一样（以前只能点「存」）
-        for 框们 in (框速, 框字, 框多):
+        for 框们 in (框速, 框字, 框多, 框接):
             框们.bind('<Return>', lambda e: (self._存游戏(), 'break')[-1])
             框们.bind('<FocusOut>', lambda e: self._存游戏())
 
@@ -798,11 +810,15 @@ class 设置页:
             c['弹幕最多'] = max(1, min(30, int(str(self.弹幕多.get()).strip() or 10)))
         except Exception:
             c['弹幕最多'] = 10
+        try:
+            c['弹幕接续'] = max(2, min(98, int(float(str(self.弹幕接.get()).strip() or 20))))
+        except Exception:
+            c['弹幕接续'] = 20
         # ⭐ 1.1.5：什么都没改就别写、也别重建 —— 以前每敲一下就关掉旧框建个新框，
         #   设置页被抢焦点，一直闪，弹幕也跟着卡。
         要改 = {k: c.get(k) for k in ('弹幕开', '弹幕框开', '弹幕框位置', '弹幕位置', '弹幕字体',
                                      '框字体', '弹幕颜色', '弹幕描边', '弹幕帧率', '框字号',
-                                     '弹幕速度秒', '弹幕字号', '弹幕最多')}
+                                     '弹幕速度秒', '弹幕字号', '弹幕最多', '弹幕接续')}
         现在 = {k: self.应用.配置.get(k) for k in 要改}
         if 要改 == 现在:
             self.说.set('没改动')

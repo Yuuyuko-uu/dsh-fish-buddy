@@ -2344,7 +2344,13 @@ class 鱼搭子:
         try:
             末 = max(们, key=lambda t: t.右 if hasattr(t, '右') else t.x + t.宽)
             屏宽 = int(getattr(层, 'sw', 1920) or 1920)
-            return 末.右 <= 屏宽 * 0.20
+            # ⭐ 1.2.7：这个位置可以自己调（默认 20%：上一条滑到屏幕左边 20% 处就放下一条）
+            try:
+                比 = float(配置.get('弹幕接续') or 20) / 100.0
+            except Exception:
+                比 = 0.20
+            比 = max(0.02, min(0.98, 比))
+            return 末.右 <= 屏宽 * 比
         except Exception:
             return False
 
