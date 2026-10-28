@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Fish Buddy",
+    "description": "Relays what the desktop widget says into a chosen session, and hands her reply back to the widget."
+  }
+}

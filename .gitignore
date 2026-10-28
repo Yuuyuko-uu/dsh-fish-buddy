@@ -1,0 +1,9 @@
+# 打包产物、备份、临时脚本不进仓库
+dist/
+_备份/
+_build工作区/
+__pycache__/
+*.pyc
+*.log
+app/_*.py
+app/config.json
