@@ -221,6 +221,137 @@ class 分层窗:
 _英文数字 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.%+-/:：'
 
 
+# ---------- ⭐ 1.2.2：备用字体 ----------
+# 站酷快乐体好看，但缺字（颜文字里的 ｡･ω･｡、♡、①、日文假名、emoji…）。
+# 缺字时画出来是「豆腐块」，看着就是乱码。这里做**一句话两种字体**：
+# 主字体有的字照旧用主字体，主字体没有的，单独换成系统字体画。
+#
+# 判断「这个字体有没有这个字」不能靠「画出来看看」—— 缺字的豆腐块跟真字形很难比，
+# 各个字体的 notdef 宽度还不一样。所以直接读字体文件的 cmap 表（自己解析，不依赖第三方库）。
+_备用体缓存 = {}
+_字形缓存 = {}
+_覆盖缓存 = {}
+_字体路径 = {}
+
+
+def _读覆盖(路):
+    """这个字体文件覆盖了哪些码位（读 cmap 表；.ttc 取第一个字体）。"""
+    if 路 in _覆盖缓存:
+        return _覆盖缓存[路]
+    码 = set()
+    try:
+        import struct
+        with open(路, 'rb') as f:
+            头 = f.read(12)
+        if 头[:4] == b'ttcf':
+            with open(路, 'rb') as f:
+                f.seek(12)
+                偏移 = struct.unpack('>I', f.read(4))[0]
+        else:
+            偏移 = 0
+        with open(路, 'rb') as f:
+            f.seek(偏移)
+            版, 表数 = struct.unpack('>IH', f.read(6))
+            f.seek(偏移 + 12)
+            目录 = [struct.unpack('>4sIII', f.read(16)) for _ in range(表数)]
+            cmap偏移 = None
+            for 标, _, 偏, 长 in 目录:
+                if 标 == b'cmap':
+                    cmap偏移 = 偏
+                    break
+            if cmap偏移 is not None:
+                f.seek(cmap偏移)
+                _, 子表数 = struct.unpack('>HH', f.read(4))
+                子表 = [struct.unpack('>HHI', f.read(8)) for _ in range(子表数)]
+                for 平台, 编码, 子偏 in 子表:
+                    if 编码 not in (3, 4, 10) and 平台 not in (0, 3):
+                        continue
+                    f.seek(cmap偏移 + 子偏)
+                    格式 = struct.unpack('>H', f.read(2))[0]
+                    if 格式 == 4:
+                        f.seek(cmap偏移 + 子偏)
+                        _, 长4, _, 段数 = struct.unpack('>HHHH', f.read(8))
+                        f.read(6)              # 省掉 searchRange/entrySelector/rangeShift
+                        结束们 = struct.unpack('>%dH' % (段数 // 2), f.read(段数))
+                        f.read(2)              # reservedPad
+                        开始们 = struct.unpack('>%dH' % (段数 // 2), f.read(段数))
+                        f.read(段数)           # idDelta
+                        范围偏移位置 = f.tell()
+                        for i in range(段数 // 2):
+                            起, 止 = 开始们[i], 结束们[i]
+                            if 起 == 0xFFFF:
+                                continue
+                            码.update(range(起, 止 + 1))
+                    elif 格式 == 12:
+                        f.seek(cmap偏移 + 子偏)
+                        f.read(2)
+                        f.read(2)
+                        _, 组数 = struct.unpack('>II', f.read(8))
+                        for _ in range(min(组数, 65536)):
+                            起, 止, 索引 = struct.unpack('>III', f.read(12))
+                            if 止 - 起 <= 0xFFFF:
+                                码.update(range(起, 止 + 1))
+    except Exception:
+        pass
+    _覆盖缓存[路] = 码
+    return 码
+
+
+def _字形有(体, 字, 键前=''):
+    """这个字体里有没有这个字（读字体文件的 cmap）。读不出来就当作「有」，保持原样。"""
+    if not 字 or 字 in ('\n', '\r', '\t') or 字.isspace():
+        return True
+    路 = _字体路径.get(id(体))
+    if not 路:
+        return True
+    键 = (路, 字)
+    if 键 in _字形缓存:
+        return _字形缓存[键]
+    覆盖 = _读覆盖(路)
+    有 = (not 覆盖) or (ord(字[0]) in 覆盖)
+    _字形缓存[键] = 有
+    return 有
+
+
+def _备用字体们(号, 主路=''):
+    """一串兜底字体（微软雅黑 → Segoe UI Symbol → 黑体）。跟主字体同一个文件的不算。"""
+    键 = (号, 主路)
+    if 键 in _备用体缓存:
+        return _备用体缓存[键]
+    们 = []
+    try:
+        import os as _os
+        # 雅黑先来（中文/假名/全角符号最全），再 Segoe UI Symbol（♡♪★ ✧ 这类符号），最后黑体
+        for 路 in (r'C:\Windows\Fonts\msyh.ttc',          # 中文 + 假名 + 全角符号
+                   r'C:\Windows\Fonts\seguisym.ttf',       # ♡ ♪ ★ ✧ 这类符号
+                   r'C:\Windows\Fonts\segoeui.ttf',        # 阿拉伯文（颜文字里的 و）+ 组合符
+                   r'C:\Windows\Fonts\malgun.ttf',         # 韩文（颜文字里的 ㅂ）
+                   r'C:\Windows\Fonts\leelawui.ttf',       # 泰文（颜文字里的 ๑）
+                   r'C:\Windows\Fonts\simhei.ttf',
+                   r'C:\Windows\Fonts\YuGothM.ttc'):
+            if not _os.path.exists(路):
+                continue
+            if 主路 and _os.path.normcase(路) == _os.path.normcase(主路):
+                continue
+            try:
+                体 = ImageFont.truetype(路, 号)
+                字体路径登记(体, 路)
+                们.append(体)
+            except Exception:
+                continue
+    except Exception:
+        们 = []
+    _备用体缓存[键] = 们
+    return 们
+
+
+def 字体路径登记(体, 路):
+    try:
+        _字体路径[id(体)] = 路
+    except Exception:
+        pass
+
+
 def _切词(文本):
     """把一句话切成「不许拆开的段」：英文单词 / 数字 / 百分比算一段，中文一个字一段。
 
@@ -435,10 +566,12 @@ class 气泡:
         最小 = 16
         顶号 = max(最小, min(40, int(round(内宽 / 18.0))))
         体 = ImageFont.truetype(self.字体路, 顶号)
+        字体路径登记(体, self.字体路)
         行高 = int(顶号 * 1.36)
         while 顶号 > 最小 and 行高 > 高内:
             顶号 -= 1
             体 = ImageFont.truetype(self.字体路, 顶号)
+            字体路径登记(体, self.字体路)
             行高 = int(顶号 * 1.36)
         return 体, 行高, 顶号
 
@@ -457,6 +590,35 @@ class 气泡:
         统一 = max(120, min(宽们)) if 宽们 else 200
         return 统一, 统一, 每页
 
+    def _混排(self, 体, 行):
+        """把一行切成若干段：[(文字, 用哪个字体), …] —— 缺字的那几个单独用备用字体。"""
+        号 = getattr(self, '号', 22)
+        备们 = _备用字体们(号, self.字体路)
+        if not 备们:
+            return [(行, 体)]
+        段们 = []
+        for 字 in 行:
+            字体 = 体
+            if not _字形有(体, 字, ('主', self.字体路, 号)):
+                for i, 备 in enumerate(备们):
+                    if _字形有(备, 字, ('备%d' % i, 号)):
+                        字体 = 备
+                        break
+            if 段们 and 段们[-1][1] is 字体:
+                段们[-1] = (段们[-1][0] + 字, 字体)
+            else:
+                段们.append((字, 字体))
+        return 段们 or [(行, 体)]
+
+    def _混宽(self, 体, 行):
+        宽 = 0.0
+        for 段, 字体 in self._混排(体, 行):
+            try:
+                宽 += 字体.getlength(段)
+            except Exception:
+                宽 += 体.getlength(段)
+        return 宽
+
     def 排页(self, 文本):
         """把话排成「一页一页」；每行能写多宽，按气泡那一行的形状算。
 
@@ -466,6 +628,7 @@ class 气泡:
         """
         不能开头 = '。，、；：！？）」』】…·.,;:!?)'
         体, 行高, 顶号 = self._定字号()
+        self.号 = 顶号          # ⭐ 1.2.2：备用字体按同一个字号找
         第一宽, 其余宽, 每页 = self._槽宽们(行高)
         self._第一宽, self._其余宽 = 第一宽, 其余宽
         页们, 当页, 行 = [], [], ''
@@ -491,7 +654,7 @@ class 气泡:
             宽限 = 现在宽()
             if not 行:
                 pass
-            elif 体.getlength(行 + 段) <= 宽限:
+            elif self._混宽(体, 行 + 段) <= 宽限:
                 行 += 段
                 continue
             elif 段 in 不能开头:
@@ -501,11 +664,11 @@ class 气泡:
                 换行()
                 宽限 = 现在宽()
             # 一个段就比这一行还宽（超长英文/数字）：只能一个字一个字断
-            if 体.getlength(段) <= 宽限:
+            if self._混宽(体, 段) <= 宽限:
                 行 = 段
                 continue
             for 字 in 段:
-                if 行 and 体.getlength(行 + 字) > 宽限:
+                if 行 and self._混宽(体, 行 + 字) > 宽限:
                     换行()
                     宽限 = 现在宽()
                 行 += 字
@@ -539,15 +702,35 @@ class 气泡:
             左们.append(左i)
             右们.append(右i)
         块左, 块右 = max(左们), min(右们)
+        try:
+            基 = 体.getmetrics()[0]      # 主字体的 ascent：备用字体的基线对齐到它
+        except Exception:
+            基 = None
         for 行 in 行们:
-            宽这行 = 体.getlength(行)
+            宽这行 = self._混宽(体, 行)
             左, 右 = 块左, 块右
             if 翻转:
                 左, 右 = 宽 - 块右, 宽 - 块左
             # 第一行贴着上圆弧，只有它稍微往里收一点；其余行共用同一对边
             x = 左 + max(0, (右 - 左 - 宽这行) // 2)
-            画.text((x, y), 行, font=体, fill=self.字色,
-                    stroke_width=self.描边, stroke_fill=self.描边色)
+            # ⭐ 1.2.2：一句话可以有两种字体 —— 主字体缺的字（颜文字/符号）用备用字体画
+            段们 = self._混排(体, 行)
+            if len(段们) == 1 and 段们[0][1] is 体:
+                画.text((x, y), 行, font=体, fill=self.字色,
+                        stroke_width=self.描边, stroke_fill=self.描边色)
+            else:
+                起 = x
+                for 段, 字体 in 段们:
+                    if 字体 is 体 or 基 is None:
+                        画.text((起, y), 段, font=字体, fill=self.字色,
+                                stroke_width=self.描边, stroke_fill=self.描边色)
+                    else:
+                        画.text((起, y + 基), 段, font=字体, fill=self.字色,
+                                stroke_width=self.描边, stroke_fill=self.描边色, anchor='ls')
+                    try:
+                        起 += 字体.getlength(段)
+                    except Exception:
+                        起 += 体.getlength(段)
             y += 行高
         return 图
 
