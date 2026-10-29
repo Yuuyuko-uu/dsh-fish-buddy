@@ -1013,8 +1013,15 @@ class 鱼搭子:
             )
             if 口.开始():
                 self.回话口 = 口
+                记右键('回话口起来了（端口 %s）' % 口.端口)
             else:
+                # ⚠ 1.3.3：这里以前只往界面上扔一句提示 —— 日志里什么都没有。
+                #   而「占不上」的典型原因就是**上一个挂件还没退干净**（重启时 7 秒内又起了一个），
+                #   那之后大肥鱼说什么都不会到挂件这边（截图却一切正常），看起来就是「弹幕突然不显示了」。
+                记右键('回话口占不上（端口 %s）：%s —— 每 5 秒重试一次'
+                       % (口.端口, 口.状态.get('错', '')))
                 self.待显示.put(('提示', '回话口占不上（端口 %s）：%s' % (口.端口, 口.状态.get('错', ''))))
+                self._重试回话口(口, 8)
         except Exception as e:
             self.待显示.put(('提示', '回话口没起来：%s' % e))
         self._拖动起点 = None
@@ -2126,7 +2133,7 @@ class 鱼搭子:
                 self.根, 屏, 位置=str(配置.get('弹幕框位置') or '右下'),
                 宽=int(配置.get('弹幕框宽') or 380),
                 字号=int(配置.get('框字号') or 20),
-                菜单=self._弹幕框菜单, 双击=self._退出游戏, 设置=self._开设置)
+                菜单=self._弹幕框菜单, 双击=self._双击回球, 设置=self._开设置)
             self.弹幕框.字体路 = _字体路(配置.get('框字体') or 配置.get('弹幕字体'))
             # ⭐ 1.1.5：记下这次是用哪套参数建的，之后「存设置」就不会白重建一遍
             self._框签名 = (配置.get('框字号'), 配置.get('框字体'), 配置.get('弹幕框宽'),
@@ -2214,6 +2221,14 @@ class 鱼搭子:
             except Exception:
                 pass
         return '按新设置来了'
+
+    def _双击回球(self):
+        """双击弹幕框 = 回球（记一笔，免得以后分不清是双击还是别的路径退出的）。"""
+        try:
+            记右键('双击弹幕框 → 退出游戏模式')
+        except Exception:
+            pass
+        return self._退出游戏()
 
     def _退出游戏(self):
         if not getattr(self, '游戏模式', False):
@@ -2432,6 +2447,27 @@ class 鱼搭子:
             self.状态.configure(text='准备麦克风…', fg=字次)
         self._刷功能行()
         self._开耳朵()
+
+    def _重试回话口(self, 口, 剩):
+        """回话口没占上就隔 5 秒再试 —— 老进程退干净之后就能占上了。"""
+        if 剩 <= 0 or getattr(self, '回话口', None):
+            return
+        try:
+            self.根.after(5000, lambda: self._再占回话口(口, 剩 - 1))
+        except Exception:
+            pass
+
+    def _再占回话口(self, 口, 剩):
+        if getattr(self, '回话口', None):
+            return
+        try:
+            if 口.开始():
+                self.回话口 = 口
+                记右键('回话口第二次占上了（端口 %s）' % 口.端口)
+                return
+        except Exception as e:
+            记右键('回话口重试出错：%s' % e)
+        self._重试回话口(口, 剩)
 
     def _开耳朵(self):
         """只准开一个耳朵。
