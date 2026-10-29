@@ -1116,6 +1116,10 @@ class 设置页:
 
         # ⭐ 1.0.3：按住说话 —— 电话没开也行，松开就把这句（可能还有一张图）发过去
         卡热 = self._卡(框)
+        tk.Label(卡热, text='录键的时候，键盘、鼠标侧键、鼠标中键都能录（建议用侧键；'
+                            '左键会跟拖动打架，别用）',
+                 bg=淡卡, fg=字次, anchor='w', justify='left', wraplength=520,
+                 font=('Microsoft YaHei UI', 8)).pack(fill='x', pady=(0, 2))
         tk.Label(卡热, text='⚠ 游戏里按键没反应？那多半是挂件权限不够 —— 退出挂件，'
                             '右键它「以管理员身份运行」再试。'
                             '（挂件默认是普通权限启动的：要读游戏里的按键，必须跟游戏一样是管理员）',
@@ -1166,6 +1170,10 @@ class 设置页:
         键 = int(self.配置.get(键项) or 0)
         if 键 <= 0:
             return '还没设'
+        # ⭐ 鼠标键单独说清楚（键码 1~6 在键盘上几乎用不到，光看数字看不懂）
+        鼠标名 = {码: 标 for 码, 标 in self.鼠标键们}
+        if 键 in 鼠标名:
+            return '现在是：%s' % 鼠标名[键]
         return '现在是：%s（键码 %d）' % (名 or '—', 键)
 
     def _刷截图说明(self):
@@ -1250,27 +1258,31 @@ class 设置页:
             self.说.set('改成整个屏幕了')
             self._刷截图说明()
 
+    # 鼠标那几个键的编号（Windows 的 VK 值，GetAsyncKeyState 直接认）
+    鼠标键们 = ((0x01, '鼠标左键'), (0x02, '鼠标右键'), (0x04, '鼠标中键'),
+              (0x05, '鼠标侧键1'), (0x06, '鼠标侧键2'))
+
     def _录键(self, 键项='按住说键', 名项='按住说名', 标签名='键说1'):
+        """录一个键：键盘走 Tk 的按键事件，**鼠标走轮询**（Tk 根本收不到鼠标键）。"""
         try:
             窗 = tk.Toplevel(self.父)
             窗.title('按一下你要用的键')
             窗.configure(bg=淡底)
-            窗.geometry('360x140')
+            窗.geometry('380x160')
             窗.attributes('-topmost', True)
-            提示 = tk.Label(窗, text='现在按一下你要用的键\n（按 Esc 取消）', bg=淡底, fg=字深,
+            提示 = tk.Label(窗, text='现在按一下你要用的键\n（键盘、鼠标侧键、中键都行；按 Esc 取消）',
+                          bg=淡底, fg=字深, justify='center',
                           font=('Microsoft YaHei UI', 12))
             提示.pack(expand=True)
+            已收 = {'成': False}
 
-            def 按(e):
-                if str(e.keysym) == 'Escape':
-                    窗.destroy()
+            def 存键(键, 名):
+                if 已收['成']:
                     return
-                键 = int(getattr(e, 'keycode', 0) or 0)
-                if 键 <= 0:
-                    return
+                已收['成'] = True
                 c = dict(paths.读配置() or {})
                 c[键项] = 键
-                c[名项] = str(getattr(e, 'keysym', '') or '')
+                c[名项] = 名
                 if paths.写配置(c):
                     self.应用.配置.update(c)
                     self.配置.update(c)
@@ -1280,11 +1292,54 @@ class 设置页:
                             标签.configure(text=self._键名(键项, 名项))
                     except Exception:
                         pass
-                    self.说.set('记下了：以后按住这个键就能说话')
-                窗.destroy()
+                    self.说.set('记下了：以后按住「%s」就能说话' % 名)
+                try:
+                    窗.destroy()
+                except Exception:
+                    pass
+
+            def 看鼠标():
+                if 已收['成']:
+                    return
+                try:
+                    if not 窗.winfo_exists():
+                        return
+                except Exception:
+                    return
+                try:
+                    import ctypes as _ct
+                    if _ct.windll.user32.GetAsyncKeyState(0x1B) & 0x8000:   # Esc
+                        try:
+                            窗.destroy()
+                        except Exception:
+                            pass
+                        return
+                    for 码, 名 in self.鼠标键们:
+                        if _ct.windll.user32.GetAsyncKeyState(码) & 0x8000:
+                            存键(码, 名)
+                            return
+                except Exception:
+                    pass
+                try:
+                    窗.after(30, 看鼠标)
+                except Exception:
+                    pass
+
+            def 按(e):
+                if str(e.keysym) == 'Escape':
+                    try:
+                        窗.destroy()
+                    except Exception:
+                        pass
+                    return
+                键 = int(getattr(e, 'keycode', 0) or 0)
+                if 键 <= 0:
+                    return
+                存键(键, str(getattr(e, 'keysym', '') or ''))
 
             窗.bind('<KeyPress>', 按)
             提示.bind('<KeyPress>', 按)
+
             # ⚠ 一定要等窗真显示出来再抢焦点，不然按键落到别处（点了没反应就是这个）
             def 抢焦():
                 try:
@@ -1293,8 +1348,10 @@ class 设置页:
                     提示.focus_set()
                 except Exception:
                     pass
+
             窗.after(120, 抢焦)
             窗.after(400, 抢焦)
+            窗.after(60, 看鼠标)
         except Exception as e:
             self.说.set('录键没起来：%s' % e)
 
