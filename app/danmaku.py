@@ -88,13 +88,22 @@ _鼠标点 = wt.POINT()
 
 
 def 字体(字号, 路=None):
+    # ⭐ 1.3.2：建好的字体要**登记路径**，bubble 那边靠它查「这个字体有没有这个字」
+    #   （没登记就等于「未知」，一律当作有 → 颜文字永远是方块）。
+    实路 = 路 or 字路
     try:
-        return ImageFont.truetype(路 or 字路, int(字号))
+        体 = ImageFont.truetype(实路, int(字号))
     except Exception:
         try:
-            return ImageFont.truetype(字路, int(字号))
+            体 = ImageFont.truetype(字路, int(字号))
+            实路 = 字路
         except Exception:
             return ImageFont.load_default()
+    try:
+        bubble.字体路径登记(体, 实路)
+    except Exception:
+        pass
+    return 体
 
 
 def 画一句(文本, 字号=26, 字色=(255, 255, 255), 描边=(40, 40, 60), 描边宽=3, 路=None):
@@ -102,21 +111,39 @@ def 画一句(文本, 字号=26, 字色=(255, 255, 255), 描边=(40, 40, 60), �
     文 = str(文本 or '').strip()
     if not 文:
         return None
-    字 = 字体(字号, 路)
-    试 = ImageDraw.Draw(Image.new('RGBA', (1, 1)))
+    字 = 字体(字号, 路)          # ⚠ 别把循环变量取名叫 字体，这里会撞成局部变量
+    路实 = 路 or 字路
+    # ⭐ 1.3.2：弹幕也走「一句话两种字体」—— 站酷没有的颜文字/符号换成系统字体，
+    #   以前这里只有一种字体，游戏模式里飘过去就是一串方块。
+    段们 = bubble.切混排(文, 字, 路实, 字号)
     try:
-        框 = 试.textbbox((0, 0), 文, font=字, stroke_width=描边宽)
-    except TypeError:
-        框 = 试.textbbox((0, 0), 文, font=字)
-    宽 = max(1, 框[2] - 框[0] + 6)
-    高 = max(1, 框[3] - 框[1] + 6)
+        主上, 主下 = 字.getmetrics()
+    except Exception:
+        主上, 主下 = int(字号), int(字号 * 0.3)
+    宽段 = 0.0
+    for 段, 用字 in 段们:
+        try:
+            宽段 += 用字.getlength(段)
+        except Exception:
+            宽段 += 字.getlength(段)
+    宽 = max(1, int(round(宽段)) + 描边宽 * 2 + 6)
+    高 = max(1, int(主上 + 主下) + 描边宽 * 2 + 6)
     图 = Image.new('RGBA', (宽, 高), (0, 0, 0, 0))
     笔 = ImageDraw.Draw(图)
-    try:
-        笔.text((3 - 框[0], 3 - 框[1]), 文, font=字, fill=字色 + (255,),
-               stroke_width=描边宽, stroke_fill=描边 + (255,))
-    except TypeError:
-        笔.text((3 - 框[0], 3 - 框[1]), 文, font=字, fill=字色 + (255,))
+    基 = 描边宽 + 3 + 主上              # 基线：主字体的 ascent 往下挪
+    x = float(描边宽 + 3)
+    for 段, 用字 in 段们:
+        if not 段:
+            continue
+        try:
+            笔.text((x, 基), 段, font=用字, fill=字色 + (255,),
+                   stroke_width=描边宽, stroke_fill=描边 + (255,), anchor='ls')
+        except TypeError:
+            笔.text((x, 基 - 主上), 段, font=用字, fill=字色 + (255,))
+        try:
+            x += 用字.getlength(段)
+        except Exception:
+            x += 字.getlength(段)
     return 图
 
 
@@ -598,7 +625,23 @@ class 弹幕框:
             for i, 行 in enumerate(行们):
                 if i == 0:
                     笔.text((左, y), '· ', font=体, fill=(120, 150, 185, 250))
-                笔.text((左 + 缩进, y + i * 行高), 行, font=体, fill=(46, 74, 104, 245))
+                # ⭐ 1.3.2：框里的字也走混排（颜文字不再出方块）
+                try:
+                    基 = y + i * 行高 + 体.getmetrics()[0]
+                except Exception:
+                    基 = y + i * 行高 + self.字号
+                _x = float(左 + 缩进)
+                for _段, _字 in bubble.切混排(行, 体, self.字体路 or 字路, self.字号):
+                    if not _段:
+                        continue
+                    try:
+                        笔.text((_x, 基), _段, font=_字, fill=(46, 74, 104, 245), anchor='ls')
+                    except Exception:
+                        笔.text((_x, y + i * 行高), _段, font=_字, fill=(46, 74, 104, 245))
+                    try:
+                        _x += _字.getlength(_段)
+                    except Exception:
+                        _x += 体.getlength(_段)
             y += len(行们) * 行高
         if not 摆:
             笔.text((左, 上 + max(0, (下 - 上) // 2 - self.字号)), '…',
