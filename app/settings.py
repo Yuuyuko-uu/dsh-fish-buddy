@@ -576,11 +576,11 @@ class 设置页:
         行接.pack(fill='x', pady=(6, 0))
         tk.Label(行接, text='下一条什么时候出来', bg=淡卡, fg=字次,
                  font=('Microsoft YaHei UI', 8)).pack(side='left')
-        self.弹幕接 = tk.StringVar(value=str(self.配置.get('弹幕接续') or 20))
+        self.弹幕接 = tk.StringVar(value=str(self.配置.get('弹幕接续') if self.配置.get('弹幕接续') is not None else 50))
         框接 = tk.Entry(行接, textvariable=self.弹幕接, width=4, bg='#ffffff', relief='flat',
                        font=('Microsoft YaHei UI', 字号), highlightthickness=1, highlightbackground=淡线)
         框接.pack(side='left', padx=6, ipady=2)
-        tk.Label(行接, text='%　（上一条滑到屏幕这个位置就放下一条；数字越小接得越快，20 是默认）',
+        tk.Label(行接, text='%　（上一条**还剩**这么多屏幕时放下一条：100 刚出来就叠下一条、50 到屏幕正中、20 只剩最后一段；默认 50）',
                  bg=淡卡, fg=字次, font=('Microsoft YaHei UI', 8)).pack(side='left')
 
         # ⭐ 0.9.2：打回车 / 点到别处就存，跟桌面那几项一样（以前只能点「存」）
@@ -867,9 +867,9 @@ class 设置页:
         except Exception:
             c['弹幕最多'] = 10
         try:
-            c['弹幕接续'] = max(2, min(98, int(float(str(self.弹幕接.get()).strip() or 20))))
+            c['弹幕接续'] = max(0, min(100, int(float(str(self.弹幕接.get()).strip() or 50))))
         except Exception:
-            c['弹幕接续'] = 20
+            c['弹幕接续'] = 50
         # ⭐ 1.1.5：什么都没改就别写、也别重建 —— 以前每敲一下就关掉旧框建个新框，
         #   设置页被抢焦点，一直闪，弹幕也跟着卡。
         要改 = {k: c.get(k) for k in ('弹幕开', '弹幕框开', '弹幕框位置', '弹幕位置', '弹幕字体',

@@ -2483,21 +2483,50 @@ class 鱼搭子:
         self._弹幕泵()
 
     def _弹幕能放下一条(self):
-        """上一条快到左边了（走了八成）就放下一条 —— 不用等它整个消失。"""
+        """上一条**还剩多少屏幕**时放下一条（这个数就是设置里那个「下一条什么时候出来 %」）。
+
+        - 100%：上一条刚露面就放下一条（一起涌出来）
+        - 50% ：上一条走到屏幕正中（默认）
+        - 20% ：上一条只剩最后 20% 才放下一条
+
+        ⭐ 1.4.6：以前这里除了算位置，还有个隐患 —— 只要位置条件一直不满足（比如图层
+        被重建过、条们 里混了旧对象），队列就永远卡住、后面的弹幕一条都不出来。
+        现在加了**兜底**：队里有货、又超过「一个屏幕的时间 × 比 + 2 秒」没放出去，就强放一条。
+        """
         层 = getattr(self, '弹幕', None)
         们 = getattr(层, '条们', None) if 层 is not None else None
         if not 们:
+            self._弹幕卡住到 = 0
             return True
         try:
             末 = max(们, key=lambda t: t.右 if hasattr(t, '右') else t.x + t.宽)
             屏宽 = int(getattr(层, 'sw', 1920) or 1920)
-            # ⭐ 1.2.7：这个位置可以自己调（默认 20%：上一条滑到屏幕左边 20% 处就放下一条）
             try:
-                比 = float(配置.get('弹幕接续') or 20) / 100.0
+                百 = float(配置.get('弹幕接续') if 配置.get('弹幕接续') is not None else 50)
             except Exception:
-                比 = 0.20
-            比 = max(0.02, min(0.98, 比))
-            return 末.右 <= 屏宽 * 比
+                百 = 50.0
+            比 = max(0.0, min(1.0, 百 / 100.0))
+            if 末.右 <= 屏宽 * 比:
+                self._弹幕卡住到 = 0
+                return True
+            # —— 兜底 ——
+            现在时 = time.time()
+            到 = getattr(self, '_弹幕卡住到', 0) or 0
+            if not 到:
+                self._弹幕卡住到 = 现在时
+                return False
+            try:
+                一屏 = float(配置.get('弹幕速度秒') or 6)
+            except Exception:
+                一屏 = 6.0
+            if 现在时 - 到 > max(2.0, 一屏 * 比 + 2.0):
+                try:
+                    记右键('弹幕等太久了（%d%% 的那个位置一直没等到），先强放一条' % 百)
+                except Exception:
+                    pass
+                self._弹幕卡住到 = 0
+                return True
+            return False
         except Exception:
             return False
 
