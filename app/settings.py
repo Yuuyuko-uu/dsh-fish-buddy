@@ -715,8 +715,23 @@ class 设置页:
         # ⭐ 1.3.4：锁定弹幕框位置（全屏打游戏时鼠标到处划，框会被拖走）
         卡锁 = self._卡(框)
         self.框锁勾 = tk.BooleanVar(value=bool(self.配置.get('框锁定', True)))
-        tk.Label(卡锁, text='游戏模式里两个救命组合键：Ctrl+Alt+G 退出游戏模式，Ctrl+Alt+L 锁/解锁这个框',
-                 bg=淡卡, fg=字浅 if '字浅' in dir() else 字次, anchor='w', justify='left',
+        # ⭐ 1.3.8：两个组合键都能自己设（默认 Alt+G 退出游戏模式 / Alt+H 锁解锁）
+        键行 = tk.Frame(卡锁, bg=淡卡)
+        键行.pack(fill='x', pady=(4, 0))
+        tk.Label(键行, text='退出游戏模式：', bg=淡卡, fg=字次,
+                 font=('Microsoft YaHei UI', 字号)).pack(side='left')
+        self.退键 = tk.StringVar(value=str(self.配置.get('游戏退出键') or 'Alt+G'))
+        tk.Entry(键行, textvariable=self.退键, width=10, bg='#ffffff', fg=字深,
+                 font=('Microsoft YaHei UI', 字号)).pack(side='left', padx=(0, 14))
+        tk.Label(键行, text='锁/解锁弹幕框：', bg=淡卡, fg=字次,
+                 font=('Microsoft YaHei UI', 字号)).pack(side='left')
+        self.锁键 = tk.StringVar(value=str(self.配置.get('游戏锁键') or 'Alt+H'))
+        tk.Entry(键行, textvariable=self.锁键, width=10, bg='#ffffff', fg=字深,
+                 font=('Microsoft YaHei UI', 字号)).pack(side='left')
+        tk.Button(键行, text='保存组合键', command=self._存组合键, bg='#cbdae5', fg=字深,
+                  font=('Microsoft YaHei UI', 字号), relief='flat').pack(side='left', padx=(10, 0))
+        tk.Label(卡锁, text='写法：Ctrl+Alt+G、Alt+H、F9 …（只在游戏模式里生效）',
+                 bg=淡卡, fg=字次, anchor='w', justify='left',
                  font=('Microsoft YaHei UI', 8)).pack(fill='x', pady=(2, 0))
         tk.Checkbutton(卡锁, text='锁住弹幕框的位置（锁住后鼠标直接穿过去）',
                        variable=self.框锁勾, command=self._存框锁, bg=淡卡, fg=字深,
@@ -852,6 +867,26 @@ class 设置页:
                 self.说.set('存好了，但游戏模式没跟上：%s' % e)
         else:
             self.说.set('没存上 —— 看看配置目录能不能写')
+
+    def _存组合键(self):
+        退 = str(self.退键.get() or '').strip() or 'Alt+G'
+        锁 = str(self.锁键.get() or '').strip() or 'Alt+H'
+        # 存之前先确认解析得出来（写错了当场说，别等进了游戏才发现按不动）
+        def 行不(文):
+            try:
+                return bool(self.应用._解析组合键(文)[1])
+            except Exception:
+                return False
+        if not 行不(退) or not 行不(锁):
+            self.说.set('组合键写法不对：要像 «Ctrl+Alt+G» «Alt+H» «F9» 这样')
+            return
+        c = dict(paths.读配置() or {})
+        c['游戏退出键'] = 退
+        c['游戏锁键'] = 锁
+        if paths.写配置(c):
+            self.应用.配置.update(c)
+            self.配置.update(c)
+            self.说.set('组合键：%s 退出游戏模式，%s 锁/解锁' % (退, 锁))
 
     def _存框锁(self):
         c = dict(paths.读配置() or {})

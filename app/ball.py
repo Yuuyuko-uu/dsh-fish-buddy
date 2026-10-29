@@ -1928,6 +1928,29 @@ class 鱼搭子:
                     见过.add(码)
                     记右键('自检：新键码 %d' % 码)
 
+    @staticmethod
+    def _解析组合键(文):
+        """'Alt+G' → ({'ctrl': False, 'alt': True, 'shift': False}, 0x47)
+
+        支持：Ctrl / Alt / Shift 任意组合 + 单个字母、数字、F1~F12。
+        解析不出来就返回 (None, 0)，调用方按「没设」处理。
+        """
+        parts = [x.strip().lower() for x in str(文 or '').split('+') if x.strip()]
+        if not parts:
+            return None, 0
+        键文 = parts[-1]
+        饰 = {m: (m in parts[:-1]) for m in ('ctrl', 'alt', 'shift')}
+        if len(键文) == 1 and (键文.isalpha() or 键文.isdigit()):
+            码 = ord(键文.upper())
+        elif 键文.startswith('f') and 键文[1:].isdigit():
+            号 = int(键文[1:])
+            if not (1 <= 号 <= 12):
+                return None, 0
+            码 = 0x70 + 号 - 1
+        else:
+            return None, 0
+        return 饰, 码
+
     def _看游戏组合键(self):
         """⭐ 1.3.7：游戏模式里的两个救命组合键（锁住时弹幕框是穿透的，点不到它）。
 
@@ -1938,31 +1961,38 @@ class 鱼搭子:
         总不能每次都去点托盘。
         """
         import ctypes as _ct
+        方案 = [('退出', 配置.get('游戏退出键') or 'Alt+G', self._退出游戏, '退出游戏模式'),
+                ('锁', 配置.get('游戏锁键') or 'Alt+H', self._切框锁定, '切换弹幕框锁定')]
         try:
-            控 = bool(_ct.windll.user32.GetAsyncKeyState(0x11) & 0x8000)   # Ctrl
-            替 = bool(_ct.windll.user32.GetAsyncKeyState(0x12) & 0x8000)   # Alt
-            下键们 = {k: bool(_ct.windll.user32.GetAsyncKeyState(v) & 0x8000)
-                     for k, v in (('G', 0x47), ('L', 0x4C))}
+            真按 = {'ctrl': bool(_ct.windll.user32.GetAsyncKeyState(0x11) & 0x8000),
+                    'alt': bool(_ct.windll.user32.GetAsyncKeyState(0x12) & 0x8000),
+                    'shift': bool(_ct.windll.user32.GetAsyncKeyState(0x10) & 0x8000)}
         except Exception:
             return
         态 = getattr(self, '_组合键态', None)
         if 态 is None:
             态 = self._组合键态 = {}
-        组合 = 控 and 替
-        for 名, 下 in 下键们.items():
+        for 名, 文, 动作, 说明 in 方案:
+            饰, 码 = self._解析组合键(文)
+            if not 饰 or not 码:
+                continue
+            按下 = False
+            try:
+                按下 = bool(_ct.windll.user32.GetAsyncKeyState(码) & 0x8000)
+            except Exception:
+                continue
             上 = 态.get(名, False)
-            态[名] = 下
-            if not (组合 and 下 and not 上):
+            态[名] = 按下
+            if not (按下 and not 上):
+                continue
+            # 修饰键要**正好**对（她自己设的，别拿 Ctrl+Alt 去撞别人的 Alt）
+            if any(真按[m] != 饰[m] for m in ('ctrl', 'alt', 'shift')):
                 continue
             if not getattr(self, '游戏模式', False):
                 continue
             try:
-                if 名 == 'G':
-                    记右键('组合键 Ctrl+Alt+G → 退出游戏模式')
-                    self._退出游戏()
-                elif 名 == 'L':
-                    记右键('组合键 Ctrl+Alt+L → 切换弹幕框锁定')
-                    self._切框锁定()
+                记右键('组合键 %s → %s' % (文, 说明))
+                动作()
             except Exception as e:
                 记右键('组合键处理出错：%s' % e)
 
