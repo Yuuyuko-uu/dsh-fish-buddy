@@ -1,3 +1,14 @@
+## 插件 0.5.0 — 2026-10-29
+
+**「装完 DSH 起不来」：把可有可无的宿主服务从「必需」里挪出去**
+
+- 🔧 `inject` 以前把 6 个服务全写成必需（agents / sessions / sessionTitle / webServer / timer / attachments）。
+  Cordis 里「必需服务缺失」会让这个插件挂不起来；装在一个没有 `attachments`（或没有 `timer`）的宿主上时，
+  整个 profile 的组装都可能跟着失败 —— 表现就是**装完 DSH 起不到主界面**。
+- ✅ 现在只有 **agents / webServer** 是必需，其余四个都放到 optional；代码里本来就有
+  `ctx.get('sessions')` / `typeof ctx.attachments.saveImage === 'function'` 这类兜底。
+- 测试：把这条断言改成「只认 agents / webServer 必需」，68 项全过。
+
 ## 程序 1.3.0 — 2026-10-29
 
 **气泡消失该是「固定的一下」，不是跟停留时间一起变长**

@@ -72,7 +72,13 @@ const 插件 = await import('../lib/host.js')
 await 等(300)
 
 查('插件导出了 apply', typeof 插件.apply === 'function')
-查('声明了 inject', Array.isArray(插件.inject) && 插件.inject.includes('agents'))
+// ⭐ 0.4.10：必需服务只在 required 里，别的都是可选 —— 宿主缺某个服务也不该让插件挂不起来
+查('inject 只把 agents / webServer 当必需', (() => {
+  const i = 插件.inject
+  if (Array.isArray(i)) return i.length === 2 && i.includes('agents') && i.includes('webServer')
+  return Boolean(i && Array.isArray(i.required) && i.required.length === 2
+    && i.required.includes('agents') && i.required.includes('webServer'))
+})())
 
 // ---------- 0.4.1：配置文件名换了，老的得能搬过来 ----------
 {
