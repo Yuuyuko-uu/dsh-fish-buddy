@@ -7,6 +7,8 @@
 - ✅ 改回数组，**只放真正离不开的两个**：`agents`、`webServer`。
   `sessions` / `sessionTitle` / `timer` / `attachments` 不再声明，用 `ctx.get(...)` 现取现用，
   拿不到就降级（列不出会话 / 发不了图），而不是让整个插件挂掉 —— 原意保留，写法改对。
+- 🔧 顺带把三处「直接摸属性」改成 `ctx.get(...)`：`ctx.interval`（timer）、`ctx.attachments`、`ctx.sessions` ——
+  不 inject 还直接摸会抛 `cannot get property "timer" without inject`，整插件激活失败。
 - 测试：68 项全过。
 
 ## 程序 1.3.1 — 2026-10-29

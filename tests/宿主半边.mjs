@@ -397,7 +397,7 @@ await 开路由([JSON.stringify({})], 开回.res)
 {
   const 源码 = readFileSync(new URL('../lib/host.js', import.meta.url), 'utf8')
   查('图：不再拼内联 base64 的图片块', !/type:\s*'image',\s*data:/.test(源码), '')
-  查('图：走 attachments.saveImage 换附件引用', 源码.includes('attachments.saveImage'), '')
+  查('图：走 attachments.saveImage 换附件引用', 源码.includes('.saveImage('), '')
   查('图：content 里带的是 attachment 引用',
     /type:\s*'image',\s*attachment:/.test(源码), '')
 }
