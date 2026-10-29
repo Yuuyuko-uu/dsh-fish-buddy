@@ -730,6 +730,9 @@ class 设置页:
                  font=('Microsoft YaHei UI', 字号)).pack(side='left')
         tk.Button(键行, text='保存组合键', command=self._存组合键, bg='#cbdae5', fg=字深,
                   font=('Microsoft YaHei UI', 字号), relief='flat').pack(side='left', padx=(10, 0))
+        tk.Label(卡锁, text='写法：Ctrl+Alt+G、Alt+H、F9 …（只在游戏模式里生效）',
+                 bg=淡卡, fg=字次, anchor='w', justify='left',
+                 font=('Microsoft YaHei UI', 8)).pack(fill='x', pady=(2, 0))
         # ⭐ 1.3.9：截图怎么送 —— 两档
         送行 = tk.Frame(卡锁, bg=淡卡)
         送行.pack(fill='x', pady=(6, 0))
@@ -758,9 +761,6 @@ class 设置页:
                  font=('Microsoft YaHei UI', 8)).pack(fill='x', pady=(2, 0))
         tk.Label(卡锁, text='攒着：截图最多留 3 张、不叫醒她；你一说话（或她主动看一眼）时一起带过去，'
                             '不是刚截的会标「几分钟前」。',
-                 bg=淡卡, fg=字次, anchor='w', justify='left',
-                 font=('Microsoft YaHei UI', 8)).pack(fill='x', pady=(2, 0))
-        tk.Label(卡锁, text='写法：Ctrl+Alt+G、Alt+H、F9 …（只在游戏模式里生效）',
                  bg=淡卡, fg=字次, anchor='w', justify='left',
                  font=('Microsoft YaHei UI', 8)).pack(fill='x', pady=(2, 0))
         tk.Checkbutton(卡锁, text='锁住弹幕框的位置（锁住后鼠标直接穿过去）',
