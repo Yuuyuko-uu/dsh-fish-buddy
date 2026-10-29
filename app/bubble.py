@@ -464,14 +464,21 @@ class 气泡:
         self._帧间 = 17
         self._入帧 = 11
         self._出帧 = 19
+        # ⭐ 1.3.0：淡入/淡出的**真实时长**，跟「停留几秒」一点关系没有
+        self._淡入毫秒 = 180
+        self._淡出毫秒 = 320
         self.设帧率(60)
 
-    def 设帧率(self, 帧率=60, 淡入毫秒=180, 淡出毫秒=320):
+    def 设帧率(self, 帧率=60, 淡入毫秒=None, 淡出毫秒=None):
         """换帧率：帧越高淡得越顺，代价是更费一点电。"""
+        if 淡入毫秒 is not None:
+            self._淡入毫秒 = float(淡入毫秒)
+        if 淡出毫秒 is not None:
+            self._淡出毫秒 = float(淡出毫秒)
         self.帧率 = 120 if int(帧率 or 60) >= 100 else 60
         self._帧间 = max(4, int(round(1000.0 / self.帧率)))
-        self._入帧 = max(4, int(self.帧率 * 淡入毫秒 / 1000.0))
-        self._出帧 = max(6, int(self.帧率 * 淡出毫秒 / 1000.0))
+        self._入帧 = max(4, int(self.帧率 * self._淡入毫秒 / 1000.0))
+        self._出帧 = max(6, int(self.帧率 * self._淡出毫秒 / 1000.0))
         try:
             _要精度(self.帧率 >= 100)
         except Exception:
@@ -810,18 +817,26 @@ class 气泡:
         except Exception:
             self._藏定时 = None
 
-    def _淡入(self, 步=0, 总=None):
-        """冒出来：从 94% 大小淡进来，头一下只有框、没有字，字在第二下才出来。"""
+    def _淡入(self, 步=0, 总=None, 起=None):
+        """冒出来：从 94% 大小淡进来，头一下只有框、没有字，字在第二下才出来。
+
+        ⭐ 1.3.0：同样按真实时间推进（`_淡入毫秒`，默认 180ms），主线程忙的时候也不会拖长。
+        """
+        import time as _t
+        if 起 is None:
+            起 = _t.perf_counter()
         总 = int(总 if 总 is not None else self._入帧)
-        if 步 >= 总:
+        比时 = (_t.perf_counter() - 起) / max(0.04, self._淡入毫秒 / 1000.0)
+        if 步 >= 总 or 比时 >= 1.0:
             try:
                 self.窗.贴图(self.次图, self.次位置[0], self.次位置[1])
             except Exception:
                 pass
             self._入定时 = None
             return
-        比 = 0.94 + 0.06 * 步 / float(max(1, 总 - 1))
-        不透明 = int(255 * (0.30 + 0.70 * 步 / float(max(1, 总 - 1))))
+        比时 = min(1.0, max(0.0, 比时))
+        比 = 0.94 + 0.06 * 比时
+        不透明 = int(255 * (0.30 + 0.70 * 比时))
         源 = self._底图 if 步 == 0 else self.次图
         try:
             图 = 源
@@ -835,7 +850,7 @@ class 气泡:
         except Exception:
             pass
         try:
-            self._入定时 = self.根.after(self._帧间, lambda: self._淡入(步 + 1, 总))
+            self._入定时 = self.根.after(self._帧间, lambda: self._淡入(步 + 1, 总, 起))
         except Exception:
             self._入定时 = None
 
@@ -848,24 +863,29 @@ class 气泡:
         self._取消定时()
         self._淡出(0)
 
-    def _淡出(self, 步=0):
+    def _淡出(self, 步=0, 起=None):
         """一点点变淡再消失（分层窗可以给整体不透明度）。
 
         ⭐ 1.1.0：以前固定 6 帧 × 45ms，一帧跳一格，看着是一顿一顿淡下去的。
-        现在按「每秒画几帧」算：60 帧就是约 18 帧，120 帧约 36 帧，淡得很顺。
+        ⭐ 1.3.0：改成**按真实时间**推进 —— 淡出永远是 `_淡出毫秒`（默认 320ms），
+          跟「停留几秒」完全无关。以前是按帧数走的，主线程一忙（弹幕、截图）
+          每帧的实际间隔就变长，320ms 能拖成 1 秒多，看着就是「消散很慢、不流畅」。
         """
-        总 = max(3, int(self._出帧))
-        if 步 >= 总:
+        import time as _t
+        if 起 is None:
+            起 = _t.perf_counter()
+        比 = (_t.perf_counter() - 起) / max(0.05, self._淡出毫秒 / 1000.0)
+        if 比 >= 1.0:
             self.窗.藏()
             return
-        不透明 = max(0, int(255 * (1.0 - 步 / float(总))))
+        不透明 = max(0, int(255 * (1.0 - 比)))
         try:
             if self.次图 is not None:
                 self.窗.贴图(self.次图, self.次位置[0], self.次位置[1], 不透明=不透明)
         except Exception:
             pass
         try:
-            self.根.after(self._帧间, lambda: self._淡出(步 + 1))
+            self.根.after(self._帧间, lambda: self._淡出(步 + 1, 起))
         except Exception:
             self.窗.藏()
 
