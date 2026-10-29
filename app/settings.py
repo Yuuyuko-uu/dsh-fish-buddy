@@ -759,7 +759,7 @@ class 设置页:
                             '再叠一层会白花钱。',
                  bg=淡卡, fg=字次, anchor='w', justify='left',
                  font=('Microsoft YaHei UI', 8)).pack(fill='x', pady=(2, 0))
-        tk.Label(卡锁, text='攒着：截图最多留 3 张、不叫醒她；你一说话（或她主动看一眼）时一起带过去，'
+        tk.Label(卡锁, text='攒着：截图一直留着（不删）、不叫醒她；你一说话（或她主动看一眼）时全部带过去，'
                             '不是刚截的会标「几分钟前」。',
                  bg=淡卡, fg=字次, anchor='w', justify='left',
                  font=('Microsoft YaHei UI', 8)).pack(fill='x', pady=(2, 0))
