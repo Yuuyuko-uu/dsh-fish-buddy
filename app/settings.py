@@ -730,6 +730,20 @@ class 设置页:
                  font=('Microsoft YaHei UI', 字号)).pack(side='left')
         tk.Button(键行, text='保存组合键', command=self._存组合键, bg='#cbdae5', fg=字深,
                   font=('Microsoft YaHei UI', 字号), relief='flat').pack(side='left', padx=(10, 0))
+        # ⭐ 1.3.9：截图怎么送 —— 两档
+        送行 = tk.Frame(卡锁, bg=淡卡)
+        送行.pack(fill='x', pady=(6, 0))
+        tk.Label(送行, text='截图怎么送：', bg=淡卡, fg=字次,
+                 font=('Microsoft YaHei UI', 字号)).pack(side='left')
+        self.送法 = tk.StringVar(value=str(self.配置.get('截图送法') or '每张'))
+        for 文, 值 in (('每张都说一遍', '每张'), ('攒着，说话时一起看', '攒着')):
+            tk.Radiobutton(送行, text=文, value=值, variable=self.送法, command=self._存截图送法,
+                           bg=淡卡, fg=字深, activebackground=淡卡, selectcolor=淡卡,
+                           font=('Microsoft YaHei UI', 字号)).pack(side='left', padx=(0, 10))
+        tk.Label(卡锁, text='攒着：截图最多留 3 张、不叫醒她；你一说话（或她搭话）时一起带过去，'
+                            '不是刚截的会标「几分钟前」。',
+                 bg=淡卡, fg=字次, anchor='w', justify='left',
+                 font=('Microsoft YaHei UI', 8)).pack(fill='x', pady=(2, 0))
         tk.Label(卡锁, text='写法：Ctrl+Alt+G、Alt+H、F9 …（只在游戏模式里生效）',
                  bg=淡卡, fg=字次, anchor='w', justify='left',
                  font=('Microsoft YaHei UI', 8)).pack(fill='x', pady=(2, 0))
@@ -867,6 +881,15 @@ class 设置页:
                 self.说.set('存好了，但游戏模式没跟上：%s' % e)
         else:
             self.说.set('没存上 —— 看看配置目录能不能写')
+
+    def _存截图送法(self):
+        v = '攒着' if str(self.送法.get()) == '攒着' else '每张'
+        c = dict(paths.读配置() or {})
+        c['截图送法'] = v
+        if paths.写配置(c):
+            self.应用.配置.update(c)
+            self.配置.update(c)
+            self.说.set('截图：' + ('攒着，说话时一起看' if v == '攒着' else '每张都说一遍'))
 
     def _存组合键(self):
         退 = str(self.退键.get() or '').strip() or 'Alt+G'
