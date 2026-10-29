@@ -109,7 +109,8 @@ const 一 = await 发({ text: '大肥鱼你在吗' })
 查('话被塞进会话', 调用.followup.length === 1)
 查('塞进去的是「挂件里说的话」+ 原话',
   调用.followup[0] && String(JSON.stringify(调用.followup[0].content)).includes('大肥鱼你在吗'))
-查('来源标成了 fishbuddy', 调用.followup[0] && 调用.followup[0].source && 调用.followup[0].source.kind === 'fishbuddy')
+// ⭐ 0.7.7：source 改成 user —— 只有 kind=user 的消息，聊天界面才会把图片块正常渲染出来
+查('来源标成了 user（图才渲染得出来）', 调用.followup[0] && 调用.followup[0].source && 调用.followup[0].source.kind === 'user')
 
 const 二 = await 发({ text: '   ' })
 查('空的一句被挡回去', 二.码 === 400)
