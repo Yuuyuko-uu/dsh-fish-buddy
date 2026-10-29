@@ -2245,7 +2245,8 @@ class 鱼搭子:
     def _按住开始(self, 带图):
         if getattr(self, '_按住中', None):
             return
-        按住 = {'带图': 带图, '起': time.time(), '图': None}
+        # ⭐ 1.5.2：一次按住 = 一条消息 —— 中间识别到几句都先攒着，松手后再合并发。
+        按住 = {'带图': 带图, '起': time.time(), '图': None, '句子们': [], '已发': False}
         self._按住中 = 按住
         # ⭐ 1.1.8：上一句说完之后耳朵会留一小会儿（默认 25 秒）——
         #   复用它能省掉「重新打开音频流」那半秒，不然按下就说话，前面几个字是丢的。
@@ -2291,6 +2292,11 @@ class 鱼搭子:
                 threading.Thread(target=抓, daemon=True).start()
             except Exception:
                 pass
+        # ⭐ 1.5.2：松手 + 定稿之后，给识别留 1.2 秒，然后**合并成一条**发出去
+        try:
+            self.根.after(1200, lambda: self._按住交发(按住))
+        except Exception:
+            pass
         # 兜底：万一下次收不到「松开」（改键、切窗口卡住），45 秒后自己收
         try:
             self.根.after(45000, lambda: self._按住收尾(按住))
@@ -2323,11 +2329,45 @@ class 鱼搭子:
         except Exception:
             self._按住收尾(按住)
 
+    def _按住交发(self, 按住):
+        """把这次按住期间攒的句子**合并成一条**发出去（只发一次）。"""
+        if not 按住 or 按住.get('已发'):
+            return
+        句们 = [str(x).strip() for x in (按住.get('句子们') or []) if str(x).strip()]
+        if not 句们:
+            return
+        按住['已发'] = True
+        按住['句子们'] = []
+        文本 = chr(10).join(句们)
+        try:
+            记右键('按住说话合并成一条发出去（%d 句）：%s' % (len(句们), 文本[:40]))
+        except Exception:
+            pass
+        try:
+            if 按住.get('带图'):
+                for _ in range(24):          # 最多等 0.6 秒：按下那一下的图可能还在压
+                    if 按住.get('图'):
+                        break
+                    time.sleep(0.025)
+                self._送图文(文本, 按住.get('图'))
+            else:
+                self._送(文本)
+        except Exception as e:
+            try:
+                记右键('按住说话合并发送失败：%s' % e)
+            except Exception:
+                pass
+
     def _按住收尾(self, 按住):
         """松开后等一会儿：**不管认没认出来，临时开的耳朵都要关掉**。"""
         还有 = getattr(self, '_按住待发', None) is 按住
         if 还有:
             self._按住待发 = None
+        # ⭐ 1.5.2：收尾时兜一把 —— 1.2 秒那趟没赶上（识别慢了）就现在发
+        try:
+            self._按住交发(按住)
+        except Exception:
+            pass
         if getattr(self, '_按住自开耳朵', False) and not getattr(self, '通话', False):
             # ⭐ 1.1.8：先不关 —— 留 25 秒（热着），下一句按下就能立刻听到。
             #   一直没人用才真关，别让麦克风一直开着。
@@ -3037,16 +3077,18 @@ class 鱼搭子:
         except Exception:
             pass
         self.待显示.put(('你', 文本))
-        # ⭐ 1.0.3：这句是「按住说话」说的 → 连同那张图一起发
-        按住 = getattr(self, '_按住待发', None)
-        if 按住 is not None and 现 - float(按住.get('起') or 现) < 25:
-            self._按住待发 = None
-            if 按住.get('带图'):
-                for _ in range(24):          # 最多等 0.6 秒：按下那一下的图可能还在压
-                    if 按住.get('图'):
-                        break
-                    time.sleep(0.025)
-            self._送图文(文本, 按住.get('图'))
+        # ⭐ 1.5.2：**按住说话期间只攒不```发```** —— 松手那一刻合并成一条发出去
+        #   （以前是每识别一句就发一条，中间停顿一下就被拆成两条）。
+        按住 = getattr(self, '_按住中', None) or getattr(self, '_按住待发', None)
+        if 按住 is not None and not getattr(self, '通话', False):
+            try:
+                按住.setdefault('句子们', []).append(文本)
+            except Exception:
+                pass
+            try:
+                记右键('按住说话攒到第 %d 句（还没发）' % len(按住.get('句子们') or []))
+            except Exception:
+                pass
             return
         try:
             if getattr(self, '陪看程序', None):
