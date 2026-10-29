@@ -2292,11 +2292,11 @@ class 鱼搭子:
                 threading.Thread(target=抓, daemon=True).start()
             except Exception:
                 pass
-        # ⭐ 1.5.2：松手 + 定稿之后，给识别留 1.2 秒，然后**合并成一条**发出去
-        try:
-            self.根.after(1200, lambda: self._按住交发(按住))
-        except Exception:
-            pass
+        # ⭐ 1.5.6：松手之后**不再固定等 1.2 秒**（那样延迟很明显）。
+        #   现在：一识别出第一句，再等 0.4 秒看还有没有后续（合并用），然后立刻发。
+        #   一带上这句标记，_收到识别 那边就会按这个节奏走。
+        按住['已松手'] = True
+        # 不再固定等 1.2 秒：识别一到就按 0.4 秒的静一下再发（收尾那 4 秒仍是兜底）
         # 兜底：万一下次收不到「松开」（改键、切窗口卡住），45 秒后自己收
         try:
             self.根.after(45000, lambda: self._按住收尾(按住))
@@ -2338,6 +2338,13 @@ class 鱼搭子:
             return
         按住['已发'] = True
         按住['句子们'] = []
+        try:
+            定 = 按住.get('发定时')
+            if 定:
+                self.根.after_cancel(定)
+                按住['发定时'] = None
+        except Exception:
+            pass
         文本 = chr(10).join(句们)
         try:
             记右键('按住说话合并成一条发出去（%d 句）：%s' % (len(句们), 文本[:40]))
@@ -3091,6 +3098,18 @@ class 鱼搭子:
                 记右键('按住说话攒到第 %d 句（还没发）' % len(按住.get('句子们') or []))
             except Exception:
                 pass
+            # ⭐ 1.5.6：已经松手了 → 再等 0.4 秒（等可能的后续），然后马上发
+            if 按住.get('已松手'):
+                try:
+                    旧定 = 按住.get('发定时')
+                    if 旧定:
+                        self.根.after_cancel(旧定)
+                except Exception:
+                    pass
+                try:
+                    按住['发定时'] = self.根.after(400, lambda: self._按住交发(按住))
+                except Exception:
+                    self._按住交发(按住)
             return
         try:
             if getattr(self, '陪看程序', None):
