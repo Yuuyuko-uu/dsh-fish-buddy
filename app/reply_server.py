@@ -66,9 +66,22 @@ class 回话口:
                     except Exception as e:
                         self._回(200, {'ok': False, '设备': [], '说': '列不出来：%s' % e})
                         return
-                    self._回(200, {'ok': True, '设备': 设备})
+                    版本 = ''
+                    try:
+                        import version as _v
+                        版本 = str(getattr(_v, '版本号', '') or '')
+                    except Exception:
+                        pass
+                    self._回(200, {'ok': True, '设备': 设备, '版本': 版本})
                     return
-                self._回(200, {'ok': True, '说': '鱼搭子的回话口在这儿'})
+                # ⭐ 1.4.2：报一下自己的版本 —— 插件的「检查更新」要靠它知道挂件旧不旧
+                版本 = ''
+                try:
+                    import version as _v
+                    版本 = str(getattr(_v, '版本号', '') or '')
+                except Exception:
+                    pass
+                self._回(200, {'ok': True, '说': '鱼搭子的回话口在这儿', '版本': 版本})
 
             def do_POST(self):
                 数据 = self._读体() if self.path.startswith(('/hands/reply', '/hands/device')) else {}
