@@ -1726,6 +1726,22 @@ class 鱼搭子:
         self._进游戏模式()
 
     # ---------- 游戏模式（0.7.0） ----------
+    def _报游戏模式(self, 开):
+        """⭐ 1.4.1：告诉插件「现在在不在游戏模式」—— 它要靠这个决定要不要主动搭话。"""
+        try:
+            import frames
+            端口 = int(配置.get('dsh_port') or 8777)
+            体 = json.dumps({'游戏': bool(开)}, ensure_ascii=False).encode('utf-8')
+            req = urllib.request.Request('http://127.0.0.1:%d/hands/mode' % 端口, data=体,
+                                         headers={'Content-Type': 'application/json'})
+            with frames.本机直连.open(req, timeout=3) as r:
+                r.read(80)
+        except Exception as e:
+            try:
+                记右键('报游戏模式失败（不影响玩）：%s' % e)
+            except Exception:
+                pass
+
     def _进游戏模式(self):
         # ⚠ 0.8.5：状态卡死时也要能重新开（以前这里直接 return，结果球藏了、框没出来，
         #   再点手柄就永远「已经在了」）
@@ -1738,6 +1754,10 @@ class 鱼搭子:
         if getattr(self, '游戏模式', False) and 齐了:
             return '已经在了'
         self.游戏模式 = True
+        try:
+            self._报游戏模式(True)
+        except Exception:
+            pass
         self.弹幕 = None
         self.弹幕框 = None
         try:
@@ -2340,6 +2360,10 @@ class 鱼搭子:
         if not getattr(self, '游戏模式', False):
             return '本来就没开'
         self.游戏模式 = False
+        try:
+            self._报游戏模式(False)
+        except Exception:
+            pass
         self._停游戏截图()
         # ⭐ 0.9.7：退出时把还没放完的弹幕和重试定时都清掉
         self._弹幕队 = []

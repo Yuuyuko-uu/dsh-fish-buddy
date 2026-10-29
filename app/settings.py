@@ -740,7 +740,23 @@ class 设置页:
             tk.Radiobutton(送行, text=文, value=值, variable=self.送法, command=self._存截图送法,
                            bg=淡卡, fg=字深, activebackground=淡卡, selectcolor=淡卡,
                            font=('Microsoft YaHei UI', 字号)).pack(side='left', padx=(0, 10))
-        tk.Label(卡锁, text='攒着：截图最多留 3 张、不叫醒她；你一说话（或她搭话）时一起带过去，'
+        # ⭐ 1.4.1：游戏模式也要能主动搭话（不然攒着的图没人看）
+        搭行 = tk.Frame(卡锁, bg=淡卡)
+        搭行.pack(fill='x', pady=(6, 0))
+        tk.Label(搭行, text='她主动看一眼：每', bg=淡卡, fg=字次,
+                 font=('Microsoft YaHei UI', 字号)).pack(side='left')
+        self.搭分钟 = tk.StringVar(value=str(int((float(self.配置.get('游戏搭话秒') or 180)) // 60)))
+        tk.Entry(搭行, textvariable=self.搭分钟, width=4, bg='#ffffff', fg=字深,
+                 font=('Microsoft YaHei UI', 字号)).pack(side='left', padx=(2, 2))
+        tk.Label(搭行, text='分钟一次（0 = 不说）', bg=淡卡, fg=字次,
+                 font=('Microsoft YaHei UI', 字号)).pack(side='left')
+        tk.Button(搭行, text='保存', command=self._存游戏搭话, bg='#cbdae5', fg=字深,
+                  font=('Microsoft YaHei UI', 字号), relief='flat').pack(side='left', padx=(8, 0))
+        tk.Label(卡锁, text='⚠ 这个只在「截图送法 = 攒着」时生效 —— 「每张都说」那一档截图本来就叫醒她，'
+                            '再叠一层会白花钱。',
+                 bg=淡卡, fg=字次, anchor='w', justify='left',
+                 font=('Microsoft YaHei UI', 8)).pack(fill='x', pady=(2, 0))
+        tk.Label(卡锁, text='攒着：截图最多留 3 张、不叫醒她；你一说话（或她主动看一眼）时一起带过去，'
                             '不是刚截的会标「几分钟前」。',
                  bg=淡卡, fg=字次, anchor='w', justify='left',
                  font=('Microsoft YaHei UI', 8)).pack(fill='x', pady=(2, 0))
@@ -881,6 +897,19 @@ class 设置页:
                 self.说.set('存好了，但游戏模式没跟上：%s' % e)
         else:
             self.说.set('没存上 —— 看看配置目录能不能写')
+
+    def _存游戏搭话(self):
+        try:
+            分 = max(0, min(240, int(float(self.搭分钟.get() or 0))))
+        except Exception:
+            self.说.set('分钟数要写数字（0 = 不说）')
+            return
+        c = dict(paths.读配置() or {})
+        c['游戏搭话秒'] = 分 * 60
+        if paths.写配置(c):
+            self.应用.配置.update(c)
+            self.配置.update(c)
+            self.说.set('游戏模式：' + ('不说' if 分 <= 0 else ('每 %d 分钟主动看一眼' % 分)))
 
     def _存截图送法(self):
         v = '攒着' if str(self.送法.get()) == '攒着' else '每张'
