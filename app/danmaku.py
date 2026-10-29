@@ -631,6 +631,14 @@ class 弹幕框:
         self.行们 = self.行们[-self.最多:]
         self._重画()
 
+    def 设状态(self, 文本):
+        """框底那行小状态（比如「已截图待发 · 2 张」）。传空就清掉。"""
+        文 = str(文本 or '').strip()
+        if 文 == getattr(self, '状态', ''):
+            return
+        self.状态 = 文
+        self._重画()
+
     def 清(self):
         self.行们 = []
         self._重画()
@@ -706,6 +714,18 @@ class 弹幕框:
         if not 摆:
             笔.text((左, 上 + max(0, (下 - 上) // 2 - self.字号)), '…',
                     font=体, fill=(150, 175, 200, 235))
+        # ⭐ 1.4.9：框底那行状态（「已截图待发 · N 张」这类），不占正文的位置
+        try:
+            if getattr(self, '状态', ''):
+                小号 = max(10, int(self.字号 * 0.62))
+                try:
+                    小体 = ImageFont.truetype(self.字体路 or 字路, 小号)
+                except Exception:
+                    小体 = 体
+                基底 = int(self.高) - max(6, int(self.字号 * 0.25))
+                笔.text((左, 基底), self.状态, font=小体, fill=(110, 140, 170, 235), anchor='ls')
+        except Exception:
+            pass
         # ⭐ 0.8.8：图上一个字都不写，热区就是她俩的脑袋（点大肥鱼=设置，点小鲸鱼=回球）
         #   大肥鱼的脑袋 = 设置，小鲸鱼的脑袋 = 回球。图上不加任何字。
         try:

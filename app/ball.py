@@ -1808,24 +1808,9 @@ class 鱼搭子:
                 self._建弹幕层(屏)
             if 配置.get('弹幕框开', True):
                 self._建弹幕框(屏框 or 屏)
-        # ⭐ 1.4.9：进来之后先打一行**本地提示**（不叫醒她、不花 token）——
-        #   「攒着」那一档截图是不吭声的，以前进来之后屏幕上什么都没有，
-        #   看起来就像「没触发 / 坏了」。
-        try:
-            if str(配置.get('截图送法') or '每张') == '攒着':
-                开声 = '● 游戏模式好了：截图先攒着，你说话时一起给她看'
-            else:
-                开声 = '● 游戏模式好了：每张截图都会跟她说一句'
-            if getattr(self, '弹幕框', None):
-                self.弹幕框.加(开声)
-            if getattr(self, '弹幕', None):
-                self.弹幕.发(开声)
-            记右键('游戏模式提示：' + 开声)
-        except Exception as e:
-            try:
-                记右键('游戏模式提示没显示：%s' % e)
-            except Exception:
-                pass
+        # ⭐ 1.4.9：进来先打一行本地提示；3 秒后那张**试截图不论什么档都真发**（确认链路通了），
+        #   发完把提示改成「试截图已发放」。
+        self._游戏模式提示('游戏模式已开启：正在试截图…')
         self._开游戏截图()
         # ⭐ 1.1.3：游戏模式也能说话 —— 按设置把麦克风开起来（退出时再关）
         try:
@@ -1865,7 +1850,27 @@ class 鱼搭子:
             return (0, 0, 屏宽, 屏高)
         return (框[0], 框[1], 框[2], 框[3])
 
-    def _截一张(self, 来源='游戏'):
+    def _游戏模式提示(self, 文):
+        """游戏模式里的一行**本地状态**（弹幕框底 + 飘一条），不叫醒她、不花 token。"""
+        文 = str(文 or '').strip()
+        if not 文:
+            return
+        try:
+            if getattr(self, '弹幕框', None):
+                self.弹幕框.设状态(文)
+        except Exception:
+            pass
+        try:
+            if getattr(self, '弹幕', None):
+                self.弹幕.发('● ' + 文)
+        except Exception:
+            pass
+        try:
+            记右键('游戏模式提示：' + 文)
+        except Exception:
+            pass
+
+    def _截一张(self, 来源='游戏', 强制发=False):
         """抓一张、压好、递给插件 —— 插件会把**图片本身**发给她看（不是只给路径）。"""
         try:
             import frames
@@ -1882,11 +1887,23 @@ class 鱼搭子:
         端口 = int(配置.get('dsh_port') or 8777)
         # ⭐ 1.3.9：'攒着' 那一档只把图交给插件存着（存档=1），**不叫醒**；
         #   '每张' 还是老行为：每张立刻发一轮。
-        攒着 = str(配置.get('截图送法') or '每张') == '攒着'
+        # ⭐ 1.4.9：但**进游戏模式那张「试截图」不论什么档都真发** —— 那是确认链路通了的凭证。
+        攒着 = str(配置.get('截图送法') or '每张') == '攒着' and not 强制发
         好, 说 = frames.发(端口, 字节, {
             '立即': 0 if 攒着 else 1,
             '存档': 1 if 攒着 else 0,
             '来源': 来源, '尺寸': '%dx%d' % 尺寸, '时间点': int(time.time() * 1000)})
+        if 攒着:
+            # 攒着的时候在弹幕框底写一行「已截图待发 · N 张」，让人知道它在存
+            try:
+                import json as _json
+                对数 = 0
+                if isinstance(说, str) and '"攒"' in 说:
+                    对数 = int(_json.loads(说).get('攒') or 0)
+                if 对数 and getattr(self, '弹幕框', None):
+                    self.弹幕框.设状态('已截图待发 · %d 张（你说话时一起送）' % 对数)
+            except Exception:
+                pass
         self._记截图('截图（%s）：%dKB %s → %s｜%s'
                    % (来源, len(字节) // 1024, '%dx%d' % 尺寸, 'ok' if 好 else '失败', str(说)[:60]))
         return bool(好)
@@ -1948,13 +1965,23 @@ class 鱼搭子:
             第一张 = bool(从头)
             while not 停.is_set():
                 间隔 = 3.0 if 第一张 else 最短 + (最长 - 最短) * random.random()
+                是第一张 = 第一张
                 第一张 = False
                 睡到 = time.time() + 间隔
                 while time.time() < 睡到 and not 停.is_set():
                     time.sleep(0.5)
                 if 停.is_set() or not getattr(self, '游戏模式', False):
                     break
-                self._截一张('游戏')
+                # ⭐ 1.4.9：**进游戏模式那张试截图，什么档都真发**（确认链路通了）
+                成 = self._截一张('游戏', 强制发=是第一张)
+                if 是第一张:
+                    try:
+                        if 成:
+                            self.根.after(0, lambda: self._游戏模式提示('游戏模式已开启：试截图已发放'))
+                        else:
+                            self.根.after(0, lambda: self._游戏模式提示('游戏模式已开启：试截图没发出去（看日志）'))
+                    except Exception:
+                        pass
             记右键('游戏截图那条腿停了')
 
         try:
@@ -2249,6 +2276,11 @@ class 鱼搭子:
             with 无代理.open(请求, timeout=8) as r:
                 r.read()
             记右键('按住说话（带图）发出去了：%s' % 文本[:30])
+            try:
+                if getattr(self, '弹幕框', None):
+                    self.弹幕框.设状态('')
+            except Exception:
+                pass
         except Exception as e:
             记右键('按住说话带图没发出去：%s' % e)
             self._送(文本)
@@ -2859,6 +2891,11 @@ class 鱼搭子:
             pass
 
     def _送(self, 文本):
+        try:
+            if getattr(self, '游戏模式', False) and getattr(self, '弹幕框', None):
+                self.弹幕框.设状态('')
+        except Exception:
+            pass
         端口 = 配置.get('dsh_port', 8777)
         路径 = 配置.get('dsh_path', '/hands/say')
         数据 = json.dumps({'text': 文本, 'session': 配置.get('session') or '',
