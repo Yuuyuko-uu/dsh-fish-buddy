@@ -1345,8 +1345,32 @@ class 鱼搭子:
             return
         if 起点 and 起点[4]:
             松开动作 = 命中悬浮按钮(e.x, e.y, self.球径)
+            try:
+                记右键('点圆钮：按下=%s 松开=%s（坐标 %d,%d / 球径 %d）'
+                       % (起点[4], 松开动作, e.x, e.y, self.球径))
+            except Exception:
+                pass
             if 松开动作 == 起点[4]:
                 self._选择功能(松开动作)
+
+    def _打开日志文件夹(self):
+        """打开「鱼搭子」的用户目录并选中日志文件 —— 不用让用户去认 %LOCALAPPDATA%。"""
+        try:
+            目录 = paths.用户目录()
+            日志 = os.path.join(目录, '右键记录.log')
+            目标 = 日志 if os.path.exists(日志) else 目录
+            if os.name == 'nt':
+                import subprocess
+                subprocess.Popen(['explorer', '/select,', os.path.normpath(目标)])
+            else:
+                import subprocess
+                subprocess.Popen(['xdg-open', 目录])
+            记右键('打开了日志文件夹：' + 目录)
+        except Exception as e:
+            try:
+                self.待显示.put(('提示', '· 打不开日志文件夹：%s' % e))
+            except Exception:
+                pass
 
     def _浮窗已移动(self, x, y):
         self._浮窗位置 = (int(x), int(y))
@@ -1399,6 +1423,8 @@ class 鱼搭子:
         可见 = self.根.state() != 'withdrawn'
         m.add_command(label=('隐藏悬浮窗' if 可见 else '显示悬浮窗'),
                       command=守(self._切换悬浮窗))
+        # ⭐ 1.5.9：日志在哪、怎么发给我们 —— 点一下就能打开，不用认 %LOCALAPPDATA%
+        m.add_command(label='打开日志文件夹', command=守(self._打开日志文件夹))
         if self.当前页:
             m.add_command(label='关闭当前功能', command=守(self._关闭功能))
         # ⭐ 1.3.6：锁住之后弹幕框是**真穿透**（点不到），所以解锁入口放在这儿
@@ -1615,6 +1641,18 @@ class 鱼搭子:
                      font=('Microsoft YaHei UI', 11, 'bold')).pack(anchor='w', pady=(12, 4))
             tk.Label(页, text='做好后可以从这里打开。', bg=淡底, fg=字次,
                      font=('Microsoft YaHei UI', 9)).pack(anchor='w')
+        # ⭐ 1.5.8：功能页右上角常驻「设置」——
+        #   ⚠ 必须**建完页再放**，而且要 lift：陪看/电话页里是整块填满的容器，
+        #     先放按钮就会被压在下面（陪看页之前就是看不出来）。
+        if 页面 != '设置':
+            try:
+                钮 = tk.Button(页, text='⚙ 设置', command=lambda: self._切页('设置'),
+                              bg=淡卡, fg=字深, relief='flat', padx=8, pady=2,
+                              font=('Microsoft YaHei UI', 9))
+                钮.place(relx=1.0, x=-10, y=6, anchor='ne')
+                钮.lift()
+            except Exception:
+                pass
 
     def _建电话页(self, 内):
         tk = self.tk
@@ -1665,9 +1703,40 @@ class 鱼搭子:
             self.陪看模块 = watch_ui
             self.陪看程序 = watch_ui.App(self.陪看承载)
         except Exception as e:
+            # ⭐ 1.5.8：完整堆栈写进日志 —— 界面上只有一行，用户一关就查不到了
+            try:
+                import traceback
+                记右键('陪看打不开（完整堆栈）：' + chr(10) + traceback.format_exc()[:1200])
+            except Exception:
+                pass
             for w in self.陪看承载.winfo_children():
                 w.destroy()
-            tk.Label(self.陪看承载, text='陪看打不开：' + str(e),
+            错文 = str(e)
+            try:
+                import traceback
+                全 = traceback.format_exc()
+            except Exception:
+                全 = 错文
+
+            def 复制():
+                try:
+                    self.根.clipboard_clear()
+                    self.根.clipboard_append(全)
+                    self.待显示.put(('提示', '· 错误已经复制了，直接粘给我们就行'))
+                except Exception:
+                    pass
+
+            def 开日志():
+                self._打开日志文件夹()
+
+            钮行 = tk.Frame(self.陪看承载, bg='#0e1014')
+            钮行.pack(anchor='nw', padx=18, pady=(0, 12))
+            for 字, 做 in (('复制错误', 复制), ('打开日志文件夹', 开日志)):
+                tk.Button(钮行, text=字, command=做, bg='#26313d', fg='#e8ebf0',
+                          activebackground='#33404f', activeforeground='#ffffff',
+                          relief='flat', padx=12, pady=4,
+                          font=('Microsoft YaHei UI', 9)).pack(side='left', padx=(0, 8))
+            tk.Label(self.陪看承载, text='陪看打不开：' + 错文,
                      bg='#0e1014', fg='#e8ebf0',
                      font=('Microsoft YaHei UI', 10), padx=18, pady=18,
                      wraplength=520, justify='left').pack(anchor='nw')
@@ -1711,6 +1780,14 @@ class 鱼搭子:
             self._挂断()
         else:
             self._开通话()
+            # ⭐ 1.5.8：开了就把电话页拿出来看（以前只在后台开，页面上什么都没变）
+            try:
+                if getattr(self, '通话', False) and self.当前页 != '电话':
+                    if '电话' not in self.页框:
+                        self._建功能页('电话')
+                    self._切页('电话')
+            except Exception:
+                pass
         self._刷功能行()
 
     def _切陪看开关(self):
@@ -1722,6 +1799,15 @@ class 鱼搭子:
             else:
                 # 还没建过陪看页：先建（建的时候会挂上陪看那个界面）
                 self._切页('陪看')
+        else:
+            # ⭐ 1.5.8：要开的时候把陪看页拿出来（设置页随时能从功能页右上角切回去）
+            if not getattr(self.陪看程序, 'cap', None) and self.当前页 != '陪看':
+                try:
+                    if '陪看' not in self.页框:
+                        self._建功能页('陪看')
+                    self._切页('陪看')
+                except Exception:
+                    pass
         if getattr(self.陪看程序, 'cap', None):
             self.陪看程序.stop()
             # ⭐ 1.1.1：陪看是全关 —— 它顺手开的那个电话也一起挂掉。
