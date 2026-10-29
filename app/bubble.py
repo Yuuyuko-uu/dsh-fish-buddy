@@ -127,6 +127,23 @@ class 分层窗:
         self.宽, self.高 = int(宽), int(高)
         return self.hwnd
 
+    def 设穿透(self, 开):
+        """中途切换「鼠标能不能点到我」。开=鼠标直接穿过去（游戏里最需要）。
+
+        ⭐ 1.3.6：弹幕框锁住时要**真穿透** —— 只「不给拖」是假锁定，
+        鼠标划过去还是被这个窗口接住（游戏里会看到光标、甚至卡一下）。
+        """
+        self.穿透 = bool(开)
+        if not self.hwnd:
+            return
+        try:
+            GWL_EXSTYLE = -20
+            现 = user32.GetWindowLongW(self.hwnd, GWL_EXSTYLE) or 0
+            新 = (现 | WS_EX_TRANSPARENT) if self.穿透 else (现 & ~WS_EX_TRANSPARENT)
+            user32.SetWindowLongW(self.hwnd, GWL_EXSTYLE, 新)
+        except Exception:
+            pass
+
     def 关(self):
         try:
             if self.hwnd:

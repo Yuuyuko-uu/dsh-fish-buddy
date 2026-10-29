@@ -1368,6 +1368,11 @@ class 鱼搭子:
                       command=守(self._切换悬浮窗))
         if self.当前页:
             m.add_command(label='关闭当前功能', command=守(self._关闭功能))
+        # ⭐ 1.3.6：锁住之后弹幕框是**真穿透**（点不到），所以解锁入口放在这儿
+        if getattr(self, '游戏模式', False):
+            锁着 = bool(self.配置.get('框锁定', True))
+            m.add_command(label=('解锁弹幕框（可以拖了）' if 锁着 else '锁定弹幕框（拖不动）'),
+                          command=守(self._切框锁定))
         m.add_separator()
         m.add_command(label='退出', command=守(self._退出))
         return m
@@ -2225,7 +2230,7 @@ class 鱼搭子:
         return '按新设置来了'
 
     def _切框锁定(self):
-        """点左下角那个小手柄 = 锁 / 解锁弹幕框的位置。"""
+        """锁 / 解锁弹幕框的位置（入口：右键菜单、设置 → 游戏）。"""
         try:
             现 = not bool(配置.get('框锁定', True))
             配置['框锁定'] = 现
@@ -2234,7 +2239,10 @@ class 鱼搭子:
             if paths.写配置(c):
                 self.配置.update(c)
             if getattr(self, '弹幕框', None):
-                self.弹幕框.锁定 = 现
+                try:
+                    self.弹幕框.设锁定(现)
+                except Exception:
+                    self.弹幕框.锁定 = 现
                 try:
                     self.弹幕框._重画()
                 except Exception:
