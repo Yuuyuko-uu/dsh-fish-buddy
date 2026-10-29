@@ -714,16 +714,20 @@ class 弹幕框:
         if not 摆:
             笔.text((左, 上 + max(0, (下 - 上) // 2 - self.字号)), '…',
                     font=体, fill=(150, 175, 200, 235))
-        # ⭐ 1.4.9：框底那行状态（「已截图待发 · N 张」这类），不占正文的位置
+        # ⭐ 1.4.10：那行小状态画在**框内区的最下面**（以前按整窗高度算，落在框边外/框外，看不见）
         try:
             if getattr(self, '状态', ''):
-                小号 = max(10, int(self.字号 * 0.62))
+                小号 = max(11, int(self.字号 * 0.66))
                 try:
                     小体 = ImageFont.truetype(self.字体路 or 字路, 小号)
                 except Exception:
-                    小体 = 体
-                基底 = int(self.高) - max(6, int(self.字号 * 0.25))
-                笔.text((左, 基底), self.状态, font=小体, fill=(110, 140, 170, 235), anchor='ls')
+                    小体 = 体小
+                底线 = int(下) - max(6, int(self.字号 * 0.28))
+                # 底下垫一条淡淡的底色，不然字压在花纹上看不清
+                # 左下角有个手柄装饰，往右让一点，别压上去
+                起x = int(左) + int(self.字号 * 1.8)
+                # 就一行小字，不加白底（框本身就是框，垫白块更难看）
+                笔.text((起x, 底线), self.状态, font=小体, fill=(58, 96, 138, 240), anchor='ls')
         except Exception:
             pass
         # ⭐ 0.8.8：图上一个字都不写，热区就是她俩的脑袋（点大肥鱼=设置，点小鲸鱼=回球）

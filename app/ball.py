@@ -1042,6 +1042,7 @@ class 鱼搭子:
             self.托盘 = None
         self.根.after(120, self._刷屏)
         self.根.after(500, self._看缩放)     # 远程调了屏幕缩放 → 自己跟着变
+        self.根.after(1200, self._清旧攒图)  # ⭐ 1.4.10：启动时把上一次的攒图清掉
         self.根.after(900, self._热键轮询)   # ⭐ 1.0.2：全局截图热键
         # ⭐ 1.2.2：起来 15 秒后自动记 90 秒「按下的键码」—— 查某个键到底报多少用
         self.根.after(15000, lambda: self._按键自检(90))
@@ -1756,6 +1757,24 @@ class 鱼搭子:
         self._进游戏模式()
 
     # ---------- 游戏模式（0.7.0） ----------
+    def _清旧攒图(self):
+        """⭐ 1.4.10：程序一启动就让插件把上一次的攒图清掉 ——
+        重开程序之后还显示「待发 4 张」是错的（那些图属于上一次）。"""
+        try:
+            import frames
+            端口 = int(配置.get('dsh_port') or 8777)
+            体 = json.dumps({'重置攒图': True}, ensure_ascii=False).encode('utf-8')
+            req = urllib.request.Request('http://127.0.0.1:%d/hands/mode' % 端口, data=体,
+                                         headers={'Content-Type': 'application/json'})
+            with frames.本机直连.open(req, timeout=3) as r:
+                回 = r.read(120).decode('utf-8', 'replace')
+            记右键('启动时清了一次旧攒图：%s' % str(回)[:60])
+        except Exception as e:
+            try:
+                记右键('清旧攒图没成（不影响玩）：%s' % e)
+            except Exception:
+                pass
+
     def _报游戏模式(self, 开):
         """⭐ 1.4.1：告诉插件「现在在不在游戏模式」—— 它要靠这个决定要不要主动搭话。"""
         try:
@@ -1901,7 +1920,7 @@ class 鱼搭子:
                 if isinstance(说, str) and '"攒"' in 说:
                     对数 = int(_json.loads(说).get('攒') or 0)
                 if 对数 and getattr(self, '弹幕框', None):
-                    self.弹幕框.设状态('已截图待发 · %d 张（你说话时一起送）' % 对数)
+                    self.弹幕框.设状态('已截图待发 · %d 张' % 对数)
             except Exception:
                 pass
         self._记截图('截图（%s）：%dKB %s → %s｜%s'
@@ -1978,6 +1997,18 @@ class 鱼搭子:
                     try:
                         if 成:
                             self.根.after(0, lambda: self._游戏模式提示('游戏模式已开启：试截图已发放'))
+                            # 每张都说的档：这条提示留 8 秒再清（不然刚看见就没了）
+                            try:
+                                if str(配置.get('截图送法') or '每张') != '攒着':
+                                    def _过会儿清():
+                                        try:
+                                            if getattr(self, '弹幕框', None):
+                                                self.弹幕框.设状态('')
+                                        except Exception:
+                                            pass
+                                    self.根.after(8000, _过会儿清)
+                            except Exception:
+                                pass
                         else:
                             self.根.after(0, lambda: self._游戏模式提示('游戏模式已开启：试截图没发出去（看日志）'))
                     except Exception:
