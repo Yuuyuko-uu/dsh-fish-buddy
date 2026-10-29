@@ -1928,8 +1928,50 @@ class 鱼搭子:
                     见过.add(码)
                     记右键('自检：新键码 %d' % 码)
 
+    def _看游戏组合键(self):
+        """⭐ 1.3.7：游戏模式里的两个救命组合键（锁住时弹幕框是穿透的，点不到它）。
+
+        - `Ctrl+Alt+G`：退出游戏模式（回球）
+        - `Ctrl+Alt+L`：锁 / 解锁弹幕框
+
+        为什么不是「右键弹幕框解锁」：锁住就是**真穿透**，右键也接不到 —— 只能另给一条路，
+        总不能每次都去点托盘。
+        """
+        import ctypes as _ct
+        try:
+            控 = bool(_ct.windll.user32.GetAsyncKeyState(0x11) & 0x8000)   # Ctrl
+            替 = bool(_ct.windll.user32.GetAsyncKeyState(0x12) & 0x8000)   # Alt
+            下键们 = {k: bool(_ct.windll.user32.GetAsyncKeyState(v) & 0x8000)
+                     for k, v in (('G', 0x47), ('L', 0x4C))}
+        except Exception:
+            return
+        态 = getattr(self, '_组合键态', None)
+        if 态 is None:
+            态 = self._组合键态 = {}
+        组合 = 控 and 替
+        for 名, 下 in 下键们.items():
+            上 = 态.get(名, False)
+            态[名] = 下
+            if not (组合 and 下 and not 上):
+                continue
+            if not getattr(self, '游戏模式', False):
+                continue
+            try:
+                if 名 == 'G':
+                    记右键('组合键 Ctrl+Alt+G → 退出游戏模式')
+                    self._退出游戏()
+                elif 名 == 'L':
+                    记右键('组合键 Ctrl+Alt+L → 切换弹幕框锁定')
+                    self._切框锁定()
+            except Exception as e:
+                记右键('组合键处理出错：%s' % e)
+
     def _热键轮询(self):
         """每 80ms 看一次两个说话键是按下去还是松开了（不挂键盘钩子，免得出事）。"""
+        try:
+            self._看游戏组合键()
+        except Exception:
+            pass
         for 键项, 带图 in (('按住说键', False), ('按住说图键', True)):
             try:
                 键 = int(配置.get(键项) or 0)

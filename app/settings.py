@@ -715,7 +715,10 @@ class 设置页:
         # ⭐ 1.3.4：锁定弹幕框位置（全屏打游戏时鼠标到处划，框会被拖走）
         卡锁 = self._卡(框)
         self.框锁勾 = tk.BooleanVar(value=bool(self.配置.get('框锁定', True)))
-        tk.Checkbutton(卡锁, text='锁住弹幕框的位置（锁住后鼠标直接穿过去；要解锁用右键菜单或这里）',
+        tk.Label(卡锁, text='游戏模式里两个救命组合键：Ctrl+Alt+G 退出游戏模式，Ctrl+Alt+L 锁/解锁这个框',
+                 bg=淡卡, fg=字浅 if '字浅' in dir() else 字次, anchor='w', justify='left',
+                 font=('Microsoft YaHei UI', 8)).pack(fill='x', pady=(2, 0))
+        tk.Checkbutton(卡锁, text='锁住弹幕框的位置（锁住后鼠标直接穿过去）',
                        variable=self.框锁勾, command=self._存框锁, bg=淡卡, fg=字深,
                        activebackground=淡卡, selectcolor=淡卡, anchor='w',
                        font=('Microsoft YaHei UI', 字号)).pack(fill='x')
