@@ -129,16 +129,24 @@ def _字体路(名字):
 def 系统缩放(窗号=None):
     """当前屏幕缩放比：96 DPI = 1.0（125% 就是 1.25）。拿不到就当 1.0。
 
-    顺序（越靠前越可信）：
-      ① 窗口收到的 WM_DPICHANGED ② 显示器当前 DPI
-      ③ 系统 DPI ④ 老的 GetDeviceCaps
+    顺序（1.4.7 起）：
+      ① 窗口**所在显示器**的 DPI（跟着那块屏，最稳）
+      ② WM_DPICHANGED 带来的值 —— 只有跟①对得上才采用（远程桌面下它会来回跳）
+      ③ 系统 DPI  ④ 老的 GetDeviceCaps
     ⚠️ 不先用 GetDpiForWindow：它在缩放改了以后可能还返回老值。
     """
     try:
         u, g = ctypes.windll.user32, ctypes.windll.gdi32
-        dpi = int(globals().get('收到的新DPI') or 0)
+        # ⚠ 1.4.7：远程桌面下 GetDpiForSystem 和「显示器 DPI」会来回变，
+        #   所以这里**先问窗口所在显示器**（它跟着那块屏，最稳），
+        #   WM_DPICHANGED 带来的值只有当它和显示器 DPI 一致时才采用（否则说明是临时抖动）。
+        监 = 显示器DPI(窗号)
+        收 = int(globals().get('收到的新DPI') or 0)
+        dpi = 监
+        if 收 > 0 and (监 <= 0 or abs(收 - 监) <= 2):
+            dpi = 收
         if dpi <= 0:
-            dpi = 显示器DPI(窗号)
+            dpi = 收
         if dpi <= 0:
             try:
                 dpi = int(u.GetDpiForSystem())
@@ -1214,16 +1222,38 @@ class 鱼搭子:
             int(round(float(self.显示缩放 or 1) * 100)), 新径 or self.球径)
 
     def _看缩放(self):
-        """半秒看一眼：远程把缩放调了 / 换了显示器，就自己重排（不用重启）。"""
+        """半秒看一眼：远程把缩放调了 / 换了显示器，就自己重排（不用重启）。
+
+        ⚠ 1.4.7：**必须先稳住再动手**。远程桌面（RDP）下，几个 DPI 来源会来回打架 ——
+        实测远程时 `系统缩放()` 每半秒在 175% 和 225% 之间跳，于是球一会儿 294、一会儿 378，
+        看起来就是「一直上下收缩」。现在只有**同一个新值连续出现 6 次（约 3 秒）**才真的改，
+        跳来跳去的临时值一律不理。
+        """
         try:
             新 = 系统缩放(self.根.winfo_id())
-            if abs(新 - float(self.显示缩放 or 1.0)) > 0.01:
-                self.显示缩放 = 新
-                self.重排()
-                try:
-                    self.待显示.put(('提示', '· 屏幕缩放变成 %d%%，跟着调好大小了' % int(round(新 * 100))))
-                except Exception:
-                    pass
+            现 = float(self.显示缩放 or 1.0)
+            if abs(新 - 现) <= 0.01:
+                self._待缩放 = None
+                self._待次数 = 0
+            else:
+                if self._待缩放 is None or abs(新 - float(self._待缩放)) > 0.01:
+                    self._待缩放 = 新
+                    self._待次数 = 1
+                else:
+                    self._待次数 = int(getattr(self, '_待次数', 0)) + 1
+                if self._待次数 >= 6:
+                    self.显示缩放 = 新
+                    self._待缩放 = None
+                    self._待次数 = 0
+                    self.重排()
+                    try:
+                        self.待显示.put(('提示', '· 屏幕缩放变成 %d%%，跟着调好大小了' % int(round(新 * 100))))
+                    except Exception:
+                        pass
+                    try:
+                        self._记尺寸('屏幕缩放稳定到 %d%%，按它重排' % int(round(新 * 100)))
+                    except Exception:
+                        pass
         except Exception:
             pass
         try:
