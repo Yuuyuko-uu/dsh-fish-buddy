@@ -405,6 +405,33 @@ await 开路由([JSON.stringify({})], 开回.res)
 // ---------- 收摊 ----------
 for (const 清 of 调用.清理) { try { 清() } catch (e) {} }
 await 等(100)
+// ⭐ 0.5.1：**rc.3 那种「没有 timer / attachments」的宿主也不能崩**
+//   （真机报过：inject 里写不存在的服务 → 插件加载失败 → DSH 自愈砍清单 → 反复崩）
+{
+  const 精简 = {
+    on: () => () => {},
+    effect: (工) => { const 清 = 工(); return 清 },
+    webServer: { register: () => () => {} },
+    agents: { get: () => undefined, list: () => [] },
+    get(名) {
+      // 只给 sessions，timer / attachments 一律没有（模拟 rc.3 的瘦 profile）
+      if (名 === 'sessions') return { list: () => [] }
+      return undefined
+    },
+  }
+  let 崩了 = ''
+  try {
+    插件.apply(精简, {})
+  } catch (e) {
+    崩了 = String((e && e.message) || e)
+  }
+  查('没有 timer / attachments 的宿主也能装上（不抛错）', 崩了 === '', 崩了)
+  await 等(150)
+  查('inject 数组里不含 timer / attachments',
+    (Array.isArray(插件.inject) ? 插件.inject : []).every((x) => x !== 'timer' && x !== 'attachments'),
+    JSON.stringify(插件.inject))
+}
+
 rmSync(家, { recursive: true, force: true })
 
 const 失败 = 结果.filter((x) => !x.过).length
