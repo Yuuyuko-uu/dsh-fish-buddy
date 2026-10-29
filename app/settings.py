@@ -1116,6 +1116,11 @@ class 设置页:
 
         # ⭐ 1.0.3：按住说话 —— 电话没开也行，松开就把这句（可能还有一张图）发过去
         卡热 = self._卡(框)
+        tk.Label(卡热, text='⚠ 游戏里按键没反应？那多半是挂件权限不够 —— 退出挂件，'
+                            '右键它「以管理员身份运行」再试。'
+                            '（挂件默认是普通权限启动的：要读游戏里的按键，必须跟游戏一样是管理员）',
+                 bg=淡卡, fg='#b06a2c', anchor='w', justify='left', wraplength=520,
+                 font=('Microsoft YaHei UI', 8)).pack(fill='x', pady=(0, 4))
         tk.Label(卡热, text='按住说话（电话没开也能用）', bg=淡卡, fg=字深, anchor='w',
                  font=('Microsoft YaHei UI', 字号)).pack(fill='x')
         行键1 = tk.Frame(卡热, bg=淡卡)
