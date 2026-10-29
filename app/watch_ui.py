@@ -203,6 +203,8 @@ def looks_like_hallucination(t):
 #      ② 攒满 7 秒还没完 → 硬切，切出来的整段再按标点拆成几行
 句末 = '。！？!?….．'      # 都算句末（ASCII 的 '.' 夹在数字中间不算，见 是句末）
 最长一句秒 = 7.0         # 到这儿硬切
+# ⭐ 1.5.5：**保持 1.2 秒不变** —— 拉长间隔会让字幕变肉。
+#   降载靠「识别线程 BELOW_NORMAL + 2 线程」，不靠拉长间隔。
 认的间隔秒 = 1.2         # 多久整条重认一次（实测 10 秒音频只要 190ms）
 稳定几次 = 3             # 连着 3 次认出来一样（约 2.4~3.6 秒没新字）就算说完
 
@@ -293,8 +295,12 @@ class SenseEngine:
         词表 = os.path.join(目录, 'tokens.txt')
         if not (os.path.exists(模型) and os.path.exists(词表)):
             raise RuntimeError('语音模型还没装（设置 → 语音里点「装语音」）')
+        # ⭐ 1.5.5：4 → 2 线程。实测识别占了 99% 的墙钟时间、整机 CPU 能到 1200%，
+        #   前台焦点落在陪看窗口时 Windows 会给前台进程加成，同进程里的识别线程也跟着抢，
+        #   外面的播放器就被挤到卡顿（「加载中 0kb/s」）。
+        #   2 线程时 7 秒音频约 0.8 秒 —— 认的间隔 1.6 秒，仍然来得及。
         self.rec = sherpa_onnx.OfflineRecognizer.from_sense_voice(
-            模型, 词表, num_threads=4, use_itn=True,
+            模型, 词表, num_threads=2, use_itn=True,
             language=('auto' if not lang or lang == 'auto' else lang))
         self.名 = 'SenseVoice'
 
@@ -578,6 +584,14 @@ class Captioner(threading.Thread):
                 pass
 
     def run(self):
+        # ⭐ 1.5.5：把识别线程降到 BELOW_NORMAL。
+        #   陪看窗口在前台时，Windows 会给**整个前台进程**加成，识别线程跟着抢 CPU，
+        #   外面正在播的软件就被挤卡。降一档正好抵消这个加成（后台时影响很小）。
+        try:
+            import ctypes as _ct
+            _ct.windll.kernel32.SetThreadPriority(_ct.windll.kernel32.GetCurrentThread(), 0x4000)
+        except Exception:
+            pass
         try:
             # 2026-10-26：模型下拉现在有三种（都是本机识别，随便切）：
             #   SenseVoice（默认，228MB）/ SenseVoice 高精度（894MB）/ Paraformer（78MB，最省）
