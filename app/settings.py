@@ -728,6 +728,17 @@ class 设置页:
         self.锁键 = tk.StringVar(value=str(self.配置.get('游戏锁键') or 'Alt+H'))
         tk.Entry(键行, textvariable=self.锁键, width=10, bg='#ffffff', fg=字深,
                  font=('Microsoft YaHei UI', 字号)).pack(side='left')
+        键行2 = tk.Frame(卡锁, bg=淡卡)
+        键行2.pack(fill='x', pady=(4, 0))
+        tk.Label(键行2, text='清空待发截图：', bg=淡卡, fg=字次,
+                 font=('Microsoft YaHei UI', 字号)).pack(side='left')
+        self.清键 = tk.StringVar(value=str(self.配置.get('游戏清键') or 'Alt+J'))
+        tk.Entry(键行2, textvariable=self.清键, width=10, bg='#ffffff', fg=字深,
+                 font=('Microsoft YaHei UI', 字号)).pack(side='left', padx=(2, 12))
+        self.去重勾 = tk.BooleanVar(value=bool(self.配置.get('截图去重', True)))
+        tk.Checkbutton(键行2, text='跟上一张几乎一样的就不发（挂机省）', variable=self.去重勾,
+                       command=self._存去重, bg=淡卡, fg=字深, activebackground=淡卡,
+                       selectcolor=淡卡, font=('Microsoft YaHei UI', 字号)).pack(side='left')
         tk.Button(键行, text='保存组合键', command=self._存组合键, bg='#cbdae5', fg=字深,
                   font=('Microsoft YaHei UI', 字号), relief='flat').pack(side='left', padx=(10, 0))
         tk.Label(卡锁, text='写法：Ctrl+Alt+G、Alt+H、F9 …（只在游戏模式里生效）',
@@ -898,6 +909,14 @@ class 设置页:
         else:
             self.说.set('没存上 —— 看看配置目录能不能写')
 
+    def _存去重(self):
+        c = dict(paths.读配置() or {})
+        c['截图去重'] = bool(self.去重勾.get())
+        if paths.写配置(c):
+            self.应用.配置.update(c)
+            self.配置.update(c)
+            self.说.set('截图去重：' + ('开着（几乎一样就跳过）' if c['截图去重'] else '关掉了'))
+
     def _存游戏搭话(self):
         try:
             分 = max(0, min(240, int(float(self.搭分钟.get() or 0))))
@@ -935,6 +954,10 @@ class 设置页:
         c = dict(paths.读配置() or {})
         c['游戏退出键'] = 退
         c['游戏锁键'] = 锁
+        c['游戏清键'] = str(self.清键.get() or '').strip() or 'Alt+J'
+        if not 行不(c['游戏清键']):
+            self.说.set('清空待发那个组合键写法不对')
+            return
         if paths.写配置(c):
             self.应用.配置.update(c)
             self.配置.update(c)

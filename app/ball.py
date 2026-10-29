@@ -943,6 +943,8 @@ class Windows托盘:
 
 
 class 鱼搭子:
+    # 单字里放行的那几个（挂机时只有一个字的多半是噪声）
+    语气词 = set('嗯啊哦呃唉哎哈呵喂好行对是的吧嘛呀咯啦嗷呜嘿诶喔噢')
     def __init__(self, tk):
         from PIL import Image, ImageTk
         self.tk, self.ImageTk = tk, ImageTk
@@ -1889,6 +1891,54 @@ class 鱼搭子:
         except Exception:
             pass
 
+    # ---------- 截图「几乎一样就不发」（挂机时省） ----------
+    上次指纹 = None
+    连跳 = 0
+
+    @staticmethod
+    def _图指纹(图):
+        """一张图的指纹：(16×9 块的亮度表, 64 位 dHash)。纯本地算，几毫秒。"""
+        灰 = 图.convert('L')
+        小 = 灰.resize((64, 36))
+        块 = []
+        for by in range(0, 36, 4):
+            for bx in range(0, 64, 4):
+                像素 = [小.getpixel((bx + i, by + j)) for i in range(4) for j in range(4)]
+                块.append(sum(像素) / len(像素))
+        微 = 灰.resize((9, 8))
+        位 = 0
+        序 = 0
+        for y in range(8):
+            for x in range(8):
+                左 = 微.getpixel((x, y))
+                右 = 微.getpixel((x + 1, y))
+                if 左 > 右:
+                    位 |= (1 << 序)
+                序 += 1
+        return (块, 位)
+
+    @classmethod
+    def _像刚才一样吗(cls, 图):
+        """跟上一张比：**大体没动**就算同一张（草木/云动只影响少数块，不判重）。"""
+        try:
+            现 = cls._图指纹(图)
+        except Exception:
+            return False
+        旧 = getattr(cls, '上次指纹', None)
+        if not 旧:
+            cls.上次指纹 = 现
+            return False
+        旧块, 旧位 = 旧
+        变 = 0
+        for a, b in zip(现[0], 旧块):
+            if abs(a - b) > 6:
+                变 += 1
+        比 = 变 / float(max(1, len(现[0])))
+        距离 = bin(现[1] ^ 旧位).count('1')
+        cls.上次指纹 = 现
+        # 判重：变化的块 ≤ 15%，并且整体指纹差 ≤ 6 位（≈90% 像）
+        return 比 <= 0.15 and 距离 <= 6
+
     def _截一张(self, 来源='游戏', 强制发=False):
         """抓一张、压好、递给插件 —— 插件会把**图片本身**发给她看（不是只给路径）。"""
         try:
@@ -1901,6 +1951,21 @@ class 鱼搭子:
         if 图 is None:
             self._记截图('抓不到画面（%s）' % (框,))
             return False
+        # ⭐ 1.5.1：跟上一张**几乎一样**就跳过（挂机时草木动一下、云飘一下不算变）
+        if not 强制发 and 来源 == '游戏' and bool(配置.get('截图去重', True)):
+            try:
+                if self._像刚才一样吗(图):
+                    self.连跳 = int(getattr(self, '连跳', 0)) + 1
+                    记右键('截图跟上一次几乎一样，跳过（连着第 %d 张）' % self.连跳)
+                    # 连续跳太多次就强制发一张（万一是真静止画面，别整天没有画面）
+                    if self.连跳 < int(配置.get('截图去重保底') or 6):
+                        return False
+                    记右键('连续跳过 %d 张了，这一张照发' % self.连跳)
+                    self.连跳 = 0
+                else:
+                    self.连跳 = 0
+            except Exception as e:
+                记右键('截图去重没算成（照发）：%s' % e)
         字节, 尺寸 = frames.压(图, 1280, 75)
         frames.存(字节, '截图')
         端口 = int(配置.get('dsh_port') or 8777)
@@ -2093,7 +2158,8 @@ class 鱼搭子:
         """
         import ctypes as _ct
         方案 = [('退出', 配置.get('游戏退出键') or 'Alt+G', self._退出游戏, '退出游戏模式'),
-                ('锁', 配置.get('游戏锁键') or 'Alt+H', self._切框锁定, '切换弹幕框锁定')]
+                ('锁', 配置.get('游戏锁键') or 'Alt+H', self._切框锁定, '切换弹幕框锁定'),
+                ('清', 配置.get('游戏清键') or 'Alt+J', self._清待发截图, '清空待发截图')]
         try:
             真按 = {'ctrl': bool(_ct.windll.user32.GetAsyncKeyState(0x11) & 0x8000),
                     'alt': bool(_ct.windll.user32.GetAsyncKeyState(0x12) & 0x8000),
@@ -2436,6 +2502,37 @@ class 鱼搭子:
             except Exception:
                 pass
         return '按新设置来了'
+
+    def _清待发截图(self):
+        """清空「已截图待发」—— 那些图都不发了。"""
+        try:
+            import frames
+            端口 = int(配置.get('dsh_port') or 8777)
+            体 = json.dumps({'重置攒图': True}, ensure_ascii=False).encode('utf-8')
+            req = urllib.request.Request('http://127.0.0.1:%d/hands/mode' % 端口, data=体,
+                                         headers={'Content-Type': 'application/json'})
+            with frames.本机直连.open(req, timeout=3) as r:
+                回 = r.read(120).decode('utf-8', 'replace')
+            记右键('清空待发截图：%s' % str(回)[:60])
+        except Exception as e:
+            记右键('清空待发截图没成：%s' % e)
+        try:
+            if getattr(self, '弹幕框', None):
+                self.弹幕框.设状态('待发的都清了')
+                def _过会儿():
+                    try:
+                        if getattr(self, '弹幕框', None):
+                            self.弹幕框.设状态('')
+                    except Exception:
+                        pass
+                self.根.after(3000, _过会儿)
+        except Exception:
+            pass
+        try:
+            self.连跳 = 0
+            self.上次指纹 = None
+        except Exception:
+            pass
 
     def _切框锁定(self):
         """锁 / 解锁弹幕框的位置（入口：右键菜单、设置 → 游戏）。"""
@@ -2875,6 +2972,41 @@ class 鱼搭子:
                 pass
 
     # ---------- 送出去 ----------
+    # ---------- 识别结果的「像不像话」过滤（防挂机时乱识别） ----------
+    @staticmethod
+    def _像话吗(文本):
+        """这句识别结果值不值得发出去。返回 (要不要, 理由)。
+
+        只拦「明显不是话」的：全是标点 / 同一个字重复三次以上 / 只有一个字又不是语气词 /
+        满屏乱码符号。**英文照发**，常见台词（「字幕由…提供」那种）也照发 —— 那些可能是真内容。
+        """
+        文 = str(文本 or '').strip()
+        if not 文:
+            return False, '空的'
+        文符 = ''.join(c for c in 文 if not c.isspace())
+        if not 文符:
+            return False, '只有空白'
+        if all(c in '。！？；…，、：,.!?;:-—～~·`"\'（）()[]【】《》<>/\\\\|' for c in 文符):
+            return False, '只有标点'
+        for i in range(len(文符) - 2):
+            if 文符[i] == 文符[i + 1] == 文符[i + 2] and 文符[i] not in '哈呵嘿呜':
+                return False, '同一个字重复'
+        if len(文符) == 1:
+            if 文符 in 鱼搭子.语气词:
+                return True, ''
+            return False, '单字不是语气词'
+        # 一个「正经字」都没有（连字母/数字/汉字都没有）= 纯符号噪声
+        try:
+            import unicodedata as _ud
+            if not any(_ud.category(c)[0] in ('L', 'N') for c in 文符):
+                return False, '没有真正的字'
+        except Exception:
+            pass
+        怪 = sum(1 for c in 文符 if (0xE000 <= ord(c) <= 0xF8FF) or ord(c) == 0xFFFD or ord(c) < 0x20)
+        if 怪 >= max(2, len(文符) // 3):
+            return False, '乱码字符太多'
+        return True, ''
+
     def _收到识别(self, 文本, 代=None):
         """电话听到一句：界面上记一笔（走队列），同时**立刻**发出去（不走主线程）。"""
         # 旧耳朵（挂断前那个）晚到的结果，丢掉
@@ -2893,6 +3025,17 @@ class 鱼搭子:
         if 上次 and 上次[0] == 文本 and 现 - 上次[1] < 2.0:
             return
         self._上次识别 = (文本, 现)
+        # ⭐ 1.5.1：先看这句像不像话（挂机时麦克风常识别出一堆标点/乱码）
+        try:
+            要, 理由 = self._像话吗(文本)
+            if not 要:
+                现2 = time.time()
+                if 现2 - float(getattr(self, '_上次丢弃日志', 0) or 0) > 30:
+                    self._上次丢弃日志 = 现2
+                    记右键('识别结果不像话，没发（%s）：%s' % (理由, str(文本)[:24]))
+                return
+        except Exception:
+            pass
         self.待显示.put(('你', 文本))
         # ⭐ 1.0.3：这句是「按住说话」说的 → 连同那张图一起发
         按住 = getattr(self, '_按住待发', None)
