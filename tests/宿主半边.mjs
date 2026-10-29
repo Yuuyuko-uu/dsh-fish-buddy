@@ -408,15 +408,16 @@ await 等(100)
 // ⭐ 0.5.1：**rc.3 那种「没有 timer / attachments」的宿主也不能崩**
 //   （真机报过：inject 里写不存在的服务 → 插件加载失败 → DSH 自愈砍清单 → 反复崩）
 {
+  // ⚠ 真机证据（DSH 0.2.1-rc.3）：cordis 的 ctx 代理在读**没在 inject 里声明**的服务时会**直接抛**
+  //   `cannot get property "timer" without inject` —— 返回 undefined 是不对的模拟。
+  //   所以这里照那个行为抛，才能验出「靠 typeof 探测」那种写法。
   const 精简 = {
     on: () => () => {},
     effect: (工) => { const 清 = 工(); return 清 },
     webServer: { register: () => () => {} },
     agents: { get: () => undefined, list: () => [] },
     get(名) {
-      // 只给 sessions，timer / attachments 一律没有（模拟 rc.3 的瘦 profile）
-      if (名 === 'sessions') return { list: () => [] }
-      return undefined
+      throw new Error('cannot get property "' + 名 + '" without inject')
     },
   }
   let 崩了 = ''

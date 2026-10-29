@@ -1,3 +1,17 @@
+## 插件 0.5.2 — 2026-10-29
+
+**rc.3 兼容：`ctx.get(...)` 也会抛，所以每一处都必须包起来**
+
+- 🐞 0.5.1 改成了「需要时现取」(`ctx.get('timer')` 之类)，但 **cordis 的 ctx 代理对没在 `inject`
+  里声明的服务，连 `ctx.get('x')` 都直接抛** `cannot get property "x" without inject` ——
+  「用 typeof 探测在不在」这条路走不通，探测本身就会抛。
+- ✅ 抽了一个 `取服务(名)`：内部 `try { ctx.get(名) } catch { null }`，**四处访问全走它**
+  （timer / sessions / sessionTitle / attachments）。取不到就降级：心跳退回 `setInterval`、
+  列不出会话、发不了图，但插件照常加载。
+- 🧪 测试也跟着改对：模拟 rc.3 的瘦 profile 时，假 ctx 现在**像真的一样抛**
+  （以前返回 undefined，测不出这个坑）。70 项全过。
+- 📄 README 补一句：这个包里**有两套版本号**（挂件程序 1.x、插件 0.5.x），CHANGELOG 里混着排。
+
 ## 插件 0.5.1 — 2026-10-29
 
 **0.5.0 的 inject 写法不对：插件会一直 pending 挂不起来**
