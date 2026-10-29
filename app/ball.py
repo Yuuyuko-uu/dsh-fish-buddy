@@ -1730,11 +1730,13 @@ class 鱼搭子:
         self.弹幕框 = None
         try:
             import danmaku
-            # ⚠ 游戏模式的东西**只用主屏**（0,0,主屏宽高）——
-            #   用虚拟屏幕会把弹幕框丢到副屏去，放「左上」还会跑出屏幕外。
+            # ⭐ 1.3.1：**弹幕层**还是只用主屏（弹幕横着飞，跨屏会两个屏各一半，很怪）；
+            #   **弹幕框**改成按整个虚拟桌面算 —— 这样能把它拖到副屏去（以前会被拽回主屏）。
             屏 = (0, 0, int(self.根.winfo_screenwidth()), int(self.根.winfo_screenheight()))
+            屏框 = self._虚拟屏幕()
         except Exception as e:
             屏 = None
+            屏框 = None
             try:
                 记右键('游戏模式没起来（导入失败）：%s' % e)
             except Exception:
@@ -1743,7 +1745,7 @@ class 鱼搭子:
             if 配置.get('弹幕开', True):
                 self._建弹幕层(屏)
             if 配置.get('弹幕框开', True):
-                self._建弹幕框(屏)
+                self._建弹幕框(屏框 or 屏)
         self._开游戏截图()
         # ⭐ 1.1.3：游戏模式也能说话 —— 按设置把麦克风开起来（退出时再关）
         try:
@@ -2197,7 +2199,7 @@ class 鱼搭子:
                 except Exception:
                     pass
                 self.弹幕框 = None
-            屏 = (0, 0, int(self.根.winfo_screenwidth()), int(self.根.winfo_screenheight()))
+            屏 = self._虚拟屏幕()
             if 配置.get('弹幕框开', True):
                 self._建弹幕框(屏)
                 try:

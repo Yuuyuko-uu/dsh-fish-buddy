@@ -741,6 +741,42 @@ class 气泡:
             y += 行高
         return 图
 
+    def _所在屏(self, x, y):
+        """这个坐标在哪块显示器上 → 那块显示器的 (左, 上, 右, 下)。
+
+        ⭐ 1.3.1：以前一律按**主屏**宽高算，所以球挪到副屏、气泡还是被拉回主屏。
+        现在按球的位置查显示器；查不到就退回主屏（老行为）。
+        """
+        try:
+            import ctypes
+            from ctypes import wintypes
+            class 点(ctypes.Structure):
+                _fields_ = [('x', ctypes.c_long), ('y', ctypes.c_long)]
+            class 矩形(ctypes.Structure):
+                _fields_ = [('left', ctypes.c_long), ('top', ctypes.c_long),
+                            ('right', ctypes.c_long), ('bottom', ctypes.c_long)]
+            class 显示器信息(ctypes.Structure):
+                _fields_ = [('cbSize', ctypes.c_ulong), ('rcMonitor', 矩形),
+                            ('rcWork', 矩形), ('dwFlags', ctypes.c_ulong)]
+            u = ctypes.windll.user32
+            u.MonitorFromPoint.argtypes = [点, ctypes.c_ulong]
+            u.MonitorFromPoint.restype = ctypes.c_void_p
+            u.GetMonitorInfoW.argtypes = [ctypes.c_void_p, ctypes.POINTER(显示器信息)]
+            u.GetMonitorInfoW.restype = wintypes.BOOL
+            柄 = u.MonitorFromPoint(点(int(x), int(y)), 2)   # 2 = DEFAULTTONEAREST
+            信息 = 显示器信息()
+            信息.cbSize = ctypes.sizeof(显示器信息)
+            if 柄 and u.GetMonitorInfoW(柄, ctypes.byref(信息)):
+                r = 信息.rcMonitor
+                return (int(r.left), int(r.top), int(r.right), int(r.bottom))
+        except Exception:
+            pass
+        try:
+            宽, 高 = int(self.根.winfo_screenwidth()), int(self.根.winfo_screenheight())
+            return (0, 0, 宽, 高)
+        except Exception:
+            return (0, 0, 1920, 1080)
+
     def 显示(self, 文本, 秒=6.0, 位置=None, 球径=None, 球框=None, 大小=1.0, 换页秒=4.0):
         文本 = str(文本 or '').strip()
         if not 文本:
@@ -759,27 +795,32 @@ class 气泡:
         self._换页秒 = max(0.8, float(换页秒))
         图 = self.合成页(self.页们[0], self.体, self.行高, False)
         self._翻转 = False
+        try:
+            球框们 = [int(v) for v in (self.球框 or (0, 0, 132, 132))]
+            球x, 球y, 球宽, 球高 = 球框们[0], 球框们[1], 球框们[2], 球框们[3]
+        except Exception:
+            球x, 球y, 球宽, 球高 = 0, 0, 132, 132
+        # ⭐ 1.3.1：按**球所在的那块显示器**来定边 —— 球在副屏，气泡就出在副屏；
+        #   球在主屏最右边时，右边放不下就翻到球的**左边**（在主屏内），不会跨屏跑过去。
+        屏左, 屏上, 屏右, 屏下 = self._所在屏(球x + 球宽 // 2, 球y + 球高 // 2)
         if 位置:
             x, y = 位置
         else:
             x, y = self._球旁边(图)
-            try:
-                屏 = self.根.winfo_screenwidth()
-                球框们 = [int(v) for v in (self.球框 or (0, 0, 132, 132))]
-                球x, 球宽 = 球框们[0], 球框们[2]
-            except Exception:
-                屏, 球x, 球宽 = 1920, 0, 132
             # 按「尾巴在左边、气泡往右展开」算一下原始位置；放不下就镜像到左边
             原x = 球x + int(球宽 * 0.90) - int(图.width * 0.24)
-            if 原x + 图.width > 屏 - 8 or 原x < 8:
+            if 原x + 图.width > 屏右 - 8 or 原x < 屏左 + 8:
                 self._翻转 = True
                 x, y = self._球旁边(图, 翻转=True)
         try:
-            屏 = self.根.winfo_screenwidth()
-            x = max(0, min(int(x), 屏 - 图.width))
+            x = max(屏左 + 8, min(int(x), 屏右 - 图.width - 8))
         except Exception:
             x = int(x)
-        self._位置 = (x, max(0, int(y)))
+        try:
+            y = max(屏上 + 8, min(int(y), 屏下 - 图.height - 8))
+        except Exception:
+            y = max(0, int(y))
+        self._位置 = (x, y)
         self._显示这页(淡入=True)
         return True
 
@@ -922,8 +963,12 @@ class 气泡:
             尖y = 球y + int(球高 * 0.12)
             x = 尖x - int(图.width * 0.20)
         y = 尖y - 图.height
-        if y < 8:                       # 上面放不下就挪到屏幕顶，别出屏
-            y = 8
-        # 左右夹进屏幕（宠物可以贴边，气泡不能出屏）
-        x = max(8, min(x, 屏宽 - 图.width - 8))
+        # ⭐ 1.3.1：**按球所在的那块显示器**夹边界（以前用主屏宽高，所以球在副屏时
+        #   气泡会被硬拽回主屏）。宠物可以贴边，气泡不能出屏 —— 但只在它自己那块屏里夹。
+        屏左, 屏上, 屏右, 屏下 = self._所在屏(球x + 球宽 // 2, 球y + 球高 // 2)
+        if y < 屏上 + 8:
+            y = 屏上 + 8
+        if y + 图.height > 屏下 - 8:
+            y = max(屏上 + 8, 屏下 - 图.height - 8)
+        x = max(屏左 + 8, min(x, 屏右 - 图.width - 8))
         return (x, y)
