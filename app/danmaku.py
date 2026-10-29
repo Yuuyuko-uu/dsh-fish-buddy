@@ -424,12 +424,17 @@ class 弹幕框:
     ⚠ 分层窗口鼠标穿透，所以「退出 / 清空」放在右上角那颗小 ✕ 上（那是普通 Tk 窗口，能点）。
     """
 
-    def __init__(self, 根, 屏框, 位置='右下', 宽=380, 高=0, 字号=20, 最多行=12, 菜单=None, 双击=None, 设置=None):
+    def __init__(self, 根, 屏框, 位置='右下', 宽=380, 高=0, 字号=20, 最多行=12, 菜单=None, 双击=None,
+                 设置=None, 锁定=False, 锁切换=None):
         import tkinter as tk
 
         self.tk = tk
         self.根 = 根
         self.设置 = 设置
+        # ⭐ 1.3.4：锁定位置 —— 全屏打游戏时鼠标到处划，框会跟着被拖走。
+        #   锁住之后拖动一律不理；左下角那个小手柄点一下就能锁/解锁。
+        self.锁定 = bool(锁定)
+        self.锁切换 = 锁切换
         self.sx, self.sy, self.sw, self.sh = 屏框
         self.宽 = max(240, int(宽))
         比例 = 0.0
@@ -467,6 +472,9 @@ class 弹幕框:
             if 名 == '回球':
                 if callable(self.双击):
                     self.双击()
+            elif 名 == '锁':
+                if callable(getattr(self, '锁切换', None)):
+                    self.锁切换()
             elif 名 == '设置':
                 if callable(getattr(self, '设置', None)):
                     self.设置()
@@ -498,10 +506,11 @@ class 弹幕框:
                                     break
                             if 命中:
                                 self._点(命中)
-                            else:
+                            elif not self.锁定:
                                 self._按下处 = (p.x, p.y)
                                 self._按在局 = (x, y)
                                 self._拖过 = False
+                            # 锁着就什么都不做：位置不动，也不会误触发双击
                     elif 按 and self._按下处:
                         dx = p.x - self._按下处[0]
                         dy = p.y - self._按下处[1]
@@ -646,12 +655,29 @@ class 弹幕框:
         if not 摆:
             笔.text((左, 上 + max(0, (下 - 上) // 2 - self.字号)), '…',
                     font=体, fill=(150, 175, 200, 235))
+        # ⭐ 1.3.4：左下角一个小手柄 —— 锁着的时候是「已锁」，点一下解锁
+        try:
+            锁框 = (int(self.宽 * 0.04), int(self.高) - int(self.宽 * 0.13),
+                    int(self.宽 * 0.04) + int(self.宽 * 0.10), int(self.高) - 6)
+            左, 上, 右, 下 = 锁框
+            色 = (120, 150, 185, 250) if self.锁定 else (150, 175, 200, 200)
+            笔.rounded_rectangle([左, 上, 右, 下], radius=5, fill=(255, 255, 255, 30),
+                                 outline=色, width=2)
+            # 中间画个锁孔
+            中 = ((左 + 右) // 2, (上 + 下) // 2)
+            笔.ellipse([中[0] - 3, 中[1] - 3, 中[0] + 3, 中[1] + 3], outline=色, width=2)
+            笔.line([中[0], 中[1] + 3, 中[0], 下 - 5], fill=色, width=2)
+        except Exception:
+            pass
         # ⭐ 0.8.8：图上一个字都不写，热区就是她俩的脑袋（点大肥鱼=设置，点小鲸鱼=回球）
         #   大肥鱼的脑袋 = 设置，小鲸鱼的脑袋 = 回球。图上不加任何字。
         try:
             self.钮区 = {
                 '设置': (int(self.宽 * 0.02), int(self.高 * 0.02), int(self.宽 * 0.46), int(self.高 * 0.32)),
                 '回球': (int(self.宽 * 0.62), int(self.高 * 0.08), int(self.宽 * 0.99), int(self.高 * 0.34)),
+                # ⭐ 1.3.4：左下角那个小手柄（锁/解锁）
+                '锁': (int(self.宽 * 0.02), int(self.高) - int(self.宽 * 0.15),
+                       int(self.宽 * 0.17), int(self.高)),
             }
         except Exception:
             pass

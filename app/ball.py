@@ -2133,7 +2133,9 @@ class 鱼搭子:
                 self.根, 屏, 位置=str(配置.get('弹幕框位置') or '右下'),
                 宽=int(配置.get('弹幕框宽') or 380),
                 字号=int(配置.get('框字号') or 20),
-                菜单=self._弹幕框菜单, 双击=self._双击回球, 设置=self._开设置)
+                菜单=self._弹幕框菜单, 双击=self._双击回球, 设置=self._开设置,
+                # ⭐ 1.3.4：锁定位置（默认锁着 —— 全屏打游戏时鼠标到处划，框会被拖走）
+                锁定=bool(配置.get('框锁定', True)), 锁切换=self._切框锁定)
             self.弹幕框.字体路 = _字体路(配置.get('框字体') or 配置.get('弹幕字体'))
             # ⭐ 1.1.5：记下这次是用哪套参数建的，之后「存设置」就不会白重建一遍
             self._框签名 = (配置.get('框字号'), 配置.get('框字体'), 配置.get('弹幕框宽'),
@@ -2221,6 +2223,25 @@ class 鱼搭子:
             except Exception:
                 pass
         return '按新设置来了'
+
+    def _切框锁定(self):
+        """点左下角那个小手柄 = 锁 / 解锁弹幕框的位置。"""
+        try:
+            现 = not bool(配置.get('框锁定', True))
+            配置['框锁定'] = 现
+            c = dict(paths.读配置() or {})
+            c['框锁定'] = 现
+            if paths.写配置(c):
+                self.配置.update(c)
+            if getattr(self, '弹幕框', None):
+                self.弹幕框.锁定 = 现
+                try:
+                    self.弹幕框._重画()
+                except Exception:
+                    pass
+            记右键('弹幕框位置：%s' % ('锁住了（拖不动）' if 现 else '解锁了（可以拖）'))
+        except Exception as e:
+            记右键('切换锁定没成：%s' % e)
 
     def _双击回球(self):
         """双击弹幕框 = 回球（记一笔，免得以后分不清是双击还是别的路径退出的）。"""
@@ -2376,12 +2397,30 @@ class 鱼搭子:
         队 = getattr(self, '_弹幕队', None) or []
         层 = getattr(self, '弹幕', None)
         if 层 is None:
-            self._弹幕队 = []
-            return
+            # ⭐ 1.3.4：游戏模式里弹幕层没了就**重建一次**（以前直接清队、什么都不说，
+            #   表现就是「弹幕突然不飘了，日志里一条都没有」）。
+            if getattr(self, '游戏模式', False) and bool(配置.get('弹幕开', True)):
+                try:
+                    记右键('弹幕层不见了：试着重建一次（队里还有 %d 条）' % len(队))
+                    屏 = (0, 0, int(self.根.winfo_screenwidth()), int(self.根.winfo_screenheight()))
+                    self._建弹幕层(屏)
+                    层 = getattr(self, '弹幕', None)
+                except Exception as e:
+                    记右键('重建弹幕层没成：%s' % e)
+            if 层 is None:
+                self._弹幕队 = []
+                return
         if 队 and self._弹幕能放下一条():
             try:
-                if 层.发(队[0]):
+                成 = 层.发(队[0])
+                if 成:
                     队.pop(0)
+                else:
+                    # 发不出去有几种原因：条数满了 / 没空道 / 画图失败 —— 记一次，别静默
+                    if not getattr(self, '_滴过没发', 0) or time.time() - self._滴过没发 > 10:
+                        self._滴过没发 = time.time()
+                        记右键('弹幕没排上（在飞的 %d 条 / 最多 %s 条）'
+                               % (len(getattr(层, '条们', []) or []), 配置.get('弹幕最多')))
             except Exception as e:
                 try:
                     记右键('弹幕没发出去：%s' % e)
@@ -2720,62 +2759,86 @@ class 鱼搭子:
         self.流水.configure(state='disabled')
 
     def _刷屏(self):
+        # ⚠ 1.3.5：这个循环**必须活着**。以前只有「取队列」那一步包了 try，
+        #   某条消息在处理时一抛错（气泡/弹幕/写流水都可能），循环直接崩掉、再也不排下一跳 ——
+        #   表现就是「大肥鱼在说话，可弹幕/气泡一个都不出来，日志里也什么都没有」。
+        try:
+            self._刷屏一轮()
+        except Exception as e:
+            try:
+                记右键('刷屏出错（下一跳照排）：%s' % e)
+            except Exception:
+                pass
+        try:
+            self.根.after(120, self._刷屏)
+        except Exception:
+            pass
+
+    def _刷屏一轮(self):
         while True:
             try:
                 谁, 内容 = self.待显示.get_nowait()
             except queue.Empty:
                 break
-            if 谁 == '状态' and self.通话:
-                态, *附 = 内容
-                if 态 == 'loading':
-                    self.状态.configure(text='正在准备麦克风…', fg=字次)
-                elif 态 == 'listening':
-                    self.状态.configure(text='● 正在听', fg=绿)
-                elif 态 == 'idle':
-                    self.状态.configure(text='○ 停了', fg=字次)
-                elif 态 == 'error':
-                    self.状态.configure(text='✕ ' + (附[0] if 附 else '出错'), fg=红)
-                    self._写('✕ ' + (附[0] if 附 else '出错'))
-            elif 谁 == '你':
-                # ⚠ 2026-10-27：句子在 _收到识别 里已经直接发过了，
-                #   这里再 _送 一次就会发两遍（日志里「送出」同一条出现两次就是这个）。
-                self._写('你：' + 内容)
-            elif 谁 == '换麦':
-                # 设置页 / DSH 那边改了麦克风：在主线程里重开耳朵（HTTP 线程不碰 Tk）
+            try:
+                self._处理一条(谁, 内容)
+            except Exception as e:
                 try:
-                    if self.通话:
-                        记右键('设置里换了麦克风：重开耳朵')
-                        self._挂断()
-                        self._开通话()
-                        if not getattr(self, '通话', False):
-                            记右键('⚠ 换麦之后电话没开起来（现在显示「关」）')
-                except Exception as e:
-                    记右键('换麦出错：%s' % e)
-            elif 谁 == '回复':
-                if getattr(self, '游戏模式', False):
-                    # ⭐ 0.7.0：游戏模式里不冒气泡，改成弹幕滑过去 + 进弹幕框
-                    try:
-                        记右键('来了一句回复（游戏模式里）→ 走弹幕')
-                    except Exception:
-                        pass
-                    self._弹一句(内容)
-                    self.未读回话.append(内容)
-                    self.未读回话 = self.未读回话[-50:]
-                    continue
-                try:
-                    记右键('来了一句回复 → 冒气泡（%d 字，气泡开=%s）'
-                           % (len(str(内容)), bool(self.配置.get('气泡开', True))))
+                    记右键('处理一条消息出错（跳过这条）：%s' % e)
                 except Exception:
                     pass
-                self._冒气泡(内容)
-                if self.通话 and hasattr(self, '流水'):
-                    self._写('大肥鱼：' + 内容)
-                else:
-                    self.未读回话.append(内容)
-                    self.未读回话 = self.未读回话[-50:]
+
+    def _处理一条(self, 谁, 内容):
+        if 谁 == '状态' and self.通话:
+            态, *附 = 内容
+            if 态 == 'loading':
+                self.状态.configure(text='正在准备麦克风…', fg=字次)
+            elif 态 == 'listening':
+                self.状态.configure(text='● 正在听', fg=绿)
+            elif 态 == 'idle':
+                self.状态.configure(text='○ 停了', fg=字次)
+            elif 态 == 'error':
+                self.状态.configure(text='✕ ' + (附[0] if 附 else '出错'), fg=红)
+                self._写('✕ ' + (附[0] if 附 else '出错'))
+        elif 谁 == '你':
+            # ⚠ 2026-10-27：句子在 _收到识别 里已经直接发过了，
+            #   这里再 _送 一次就会发两遍（日志里「送出」同一条出现两次就是这个）。
+            self._写('你：' + 内容)
+        elif 谁 == '换麦':
+            # 设置页 / DSH 那边改了麦克风：在主线程里重开耳朵（HTTP 线程不碰 Tk）
+            try:
+                if self.通话:
+                    记右键('设置里换了麦克风：重开耳朵')
+                    self._挂断()
+                    self._开通话()
+                    if not getattr(self, '通话', False):
+                        记右键('⚠ 换麦之后电话没开起来（现在显示「关」）')
+            except Exception as e:
+                记右键('换麦出错：%s' % e)
+        elif 谁 == '回复':
+            if getattr(self, '游戏模式', False):
+                # ⭐ 0.7.0：游戏模式里不冒气泡，改成弹幕滑过去 + 进弹幕框
+                try:
+                    记右键('来了一句回复（游戏模式里）→ 走弹幕')
+                except Exception:
+                    pass
+                self._弹一句(内容)
+                self.未读回话.append(内容)
+                self.未读回话 = self.未读回话[-50:]
+                return
+            try:
+                记右键('来了一句回复 → 冒气泡（%d 字，气泡开=%s）'
+                       % (len(str(内容)), bool(self.配置.get('气泡开', True))))
+            except Exception:
+                pass
+            self._冒气泡(内容)
+            if self.通话 and hasattr(self, '流水'):
+                self._写('大肥鱼：' + 内容)
             else:
-                self._写(内容)
-        self.根.after(120, self._刷屏)
+                self.未读回话.append(内容)
+                self.未读回话 = self.未读回话[-50:]
+        else:
+            self._写(内容)
 
     def _退出(self, 保存位置=True):
         记右键('执行 _退出（保存位置=%s）' % 保存位置)

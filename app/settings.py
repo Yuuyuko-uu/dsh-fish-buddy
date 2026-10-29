@@ -712,6 +712,14 @@ class 设置页:
                             font=('Microsoft YaHei UI', 8), wraplength=460)
         self.拍框说.pack(fill='x', pady=(4, 0))
 
+        # ⭐ 1.3.4：锁定弹幕框位置（全屏打游戏时鼠标到处划，框会被拖走）
+        卡锁 = self._卡(框)
+        self.框锁勾 = tk.BooleanVar(value=bool(self.配置.get('框锁定', True)))
+        tk.Checkbutton(卡锁, text='锁住弹幕框的位置（拖不动；框左下角那个小手柄也能切换）',
+                       variable=self.框锁勾, command=self._存框锁, bg=淡卡, fg=字深,
+                       activebackground=淡卡, selectcolor=淡卡, anchor='w',
+                       font=('Microsoft YaHei UI', 字号)).pack(fill='x')
+
         卡3 = self._卡(框)
         tk.Button(卡3, text='现在就进游戏模式', command=self._试游戏, bg='#cbdae5', fg=字深,
                   relief='flat', font=('Microsoft YaHei UI', 字号), pady=3, padx=12).pack(side='left')
@@ -841,6 +849,21 @@ class 设置页:
                 self.说.set('存好了，但游戏模式没跟上：%s' % e)
         else:
             self.说.set('没存上 —— 看看配置目录能不能写')
+
+    def _存框锁(self):
+        c = dict(paths.读配置() or {})
+        c['框锁定'] = bool(self.框锁勾.get())
+        if paths.写配置(c):
+            self.应用.配置.update(c)
+            self.配置.update(c)
+            # 正在游戏模式里就当场生效
+            try:
+                if getattr(self.应用, '弹幕框', None):
+                    self.应用.弹幕框.锁定 = bool(c['框锁定'])
+                    self.应用.弹幕框._重画()
+            except Exception:
+                pass
+            self.说.set('弹幕框位置：' + ('锁住了' if c['框锁定'] else '可以拖了'))
 
     def _试游戏(self):
         try:
