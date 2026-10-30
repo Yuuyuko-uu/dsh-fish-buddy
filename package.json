@@ -2,7 +2,7 @@
   "name": "dsh-fish-buddy",
   "version": "0.8.0",
   "description": "鱼搭子 · DSH 这半边：桌面小挂件说的话送进你绑定的会话，她的回话再递回挂件。挂件是独立程序，这里只负责接线。",
-  "license": "MIT",
+  "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "keywords": [
     "deepseek-harness",

@@ -171,3 +171,11 @@ node tests/inbound-singleflight.mjs
   多显示器摆位、颜文字混排、组合键、锁定穿透
 
 （各版本改了什么、最新是多少 —— 见 `CHANGELOG.md` 和 Releases。）
+
+---
+
+## 许可
+
+[Yuuyuko-uu 插件许可 1.0](./LICENSE)：允许使用、修改、商用；
+再分发时要在 README 第一屏注明原仓库和原作者；禁止把本项目说成自己的原创。
+这份许可不是 OSI 认证的开源许可，用之前请读一遍全文。
