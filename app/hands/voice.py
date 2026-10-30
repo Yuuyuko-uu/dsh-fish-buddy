@@ -15,7 +15,7 @@ import numpy as np
 import sherpa_onnx
 import sounddevice as sd
 
-ASR_DIR = paths.模型目录()
+ASR_DIR = paths.当前档目录()
 
 # 高频听错的词 → 正确的词（热词纠错；其余可在 config.json -> voice.hotwords 扩）
 DEFAULT_HOTWORDS = {
@@ -26,6 +26,13 @@ DEFAULT_HOTWORDS = {
 
 
 def make_recognizer(num_threads=4, lang='zh'):
+    # ⭐ 1.5.9：跟着设置里选的那一档走（paraformer 那档要换一个建法）
+    if paths.档引擎(ASR_DIR) == 'paraformer':
+        return sherpa_onnx.OfflineRecognizer.from_paraformer(
+            paraformer=os.path.join(ASR_DIR, 'model.onnx'),
+            tokens=os.path.join(ASR_DIR, 'tokens.txt'),
+            num_threads=num_threads, sample_rate=16000, feature_dim=80,
+            decoding_method='greedy_search', provider='cpu', debug=False)
     return sherpa_onnx.OfflineRecognizer.from_sense_voice(
         model=os.path.join(ASR_DIR, 'model.onnx'),
         tokens=os.path.join(ASR_DIR, 'tokens.txt'),
@@ -35,7 +42,7 @@ def make_recognizer(num_threads=4, lang='zh'):
 
 def make_vad():
     c = sherpa_onnx.VadModelConfig()
-    c.silero_vad.model = os.path.join(ASR_DIR, 'silero_vad.onnx')
+    c.silero_vad.model = paths.silero路(ASR_DIR)
     c.silero_vad.threshold = 0.35
     c.silero_vad.min_silence_duration = 0.7
     c.silero_vad.min_speech_duration = 0.25

@@ -127,6 +127,8 @@ def 模型目录():
     '框字号': 20,
     '框字体': '站酷快乐体',
     '回话端口': 8778,          # 大肥鱼的回话往这个口子送进来
+    # ⭐ 1.5.9：用哪一档识别模型（int8 / fp32 / paraformer，见文件末尾「语音模型」那节）
+    '语音模型': 'int8',
     '陪看带麦克风': True,      # 开陪看时顺手把电话（麦克风）也打开
     '字幕送给大肥鱼': True,    # 陪看的定稿字幕推给 DSH 插件（白板）
     '随机搭话秒': 600,         # ⭐ 陪看时每隔多少秒自己找机会说一句；0 = 只看不说
@@ -197,36 +199,131 @@ def 写配置(c):
 
 # ---------- 语音模型 ----------
 
+# ⭐ 1.5.9：识别模型恢复成**三档，能自己选**。以前只剩最大那一份（894MB），
+#   普通电脑的 CPU 撑不住，而且没得挑。
+#
+#   **每一档一个目录，目录里的文件名统一是 model.onnx + tokens.txt** ——
+#   接识别器的代码（ear / watch_ui）只认这两个名字，不用管底下是哪一档。
+#   目录名叫 paraformer 的那一档走 from_paraformer，其余走 from_sense_voice（见 档引擎()）。
+#
+#   fp32 那一档就摆在 models\ 根上：老用户已经下好的 894MB 不用再下一遍。
 语音模型名 = 'sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17'
-# ⭐ 0.2.5：只保留 fp32 那一份（894MB，最准）。
-#   以前那个 228MB 的 int8 和 Paraformer 全部退役，不再下载、不再使用。
-语音文件 = ('model.onnx', 'tokens.txt')          # 这两个要下载（894MB + 词表）
+paraformer模型名 = 'sherpa-onnx-paraformer-zh-small-2024-03-09'
+
+# ⚠ '仓库' 是完整的「属主/仓库名」—— 少了属主那段，下载地址就是错的（会一直 401）
+语音档们 = {
+    'int8': {'名': '小（228MB）', '说': '省 CPU，够用',
+             '仓库': 'csukuangfj/' + 语音模型名, '远端': 'model.int8.onnx'},
+    'fp32': {'名': '大（894MB）', '说': '识别最准，吃 CPU 和内存',
+             '仓库': 'csukuangfj/' + 语音模型名, '远端': 'model.onnx'},
+    'paraformer': {'名': '最快（78MB）', '说': '最省，但不出标点',
+                   '仓库': 'csukuangfj/' + paraformer模型名, '远端': 'model.int8.onnx'},
+}
+语音档顺序 = ('int8', 'fp32', 'paraformer')
+默认语音档 = 'int8'
+语音文件 = ('model.onnx', 'tokens.txt')          # 每档目录里都叫这两个名字
 内置文件 = ('silero_vad.onnx',)                   # 这个很小，打在程序里
-旧模型目录 = ('sensevoice-fp32', 'paraformer')     # 老版本留下的，迁移后可以删
+
+
+def 当前语音档():
+    """配置里选的那一档；配错了（或者老配置没这个键）就当默认那档。"""
+    档 = str(读配置().get('语音模型') or '')
+    return 档 if 档 in 语音档们 else 默认语音档
+
+
+def 档目录(档=''):
+    """某一档的模型目录。fp32 摆在 models\\ 根上（照顾已经下好的 894MB）。"""
+    档 = 档 if 档 in 语音档们 else 当前语音档()
+    if 档 == 'fp32':
+        return 模型目录()
+    return os.path.join(模型目录(), 档)
+
+
+def 档文件路(档, 名):
+    return os.path.join(档目录(档), 名)
+
+
+def 当前档目录():
+    """**实际在用**的那一档的目录。
+
+    ⚠ 跟 档目录() 不是一回事：档目录() 是「配置里选的那一档」（下载/检查就绪要用它），
+    这里是「真正拿来说话的那一档」—— 选的那档没装、别的档装了，就用装好的那份，
+    不然老用户换默认值之后会变成「没模型、不能说话」。
+    """
+    return 档目录(可用档() or 当前语音档())
+
+
+def 档引擎(目录):
+    """这个目录里的模型该用哪个识别器建 —— 纯看目录名。"""
+    名 = os.path.basename(os.path.normpath(str(目录 or '')))
+    return 'paraformer' if 名 == 'paraformer' else 'sense'
+
+
+def 档就绪(档):
+    """这一档能不能用：两个文件都在（大于 1KB 就算下完了），VAD 允许从内置那里借。"""
+    if 档 not in 语音档们:
+        return False
+    目录 = 档目录(档)
+    for 名 in 语音文件:
+        路 = os.path.join(目录, 名)
+        if not os.path.exists(路):
+            return False
+        if os.path.getsize(路) < 1024:
+            return False
+    if os.path.exists(os.path.join(目录, 'silero_vad.onnx')):
+        return True
+    return bool(内置语音('silero_vad.onnx'))
+
+
+def 可用档(想要的=''):
+    """实际拿哪一档去识别：想要的在就用它，不在就看哪一档已经装好。
+
+    ⭐ 默认档换成小的了，但老用户机器上还是原来那份大模型 ——
+    不能因为换默认值就变成「没装、不能说话」。
+    """
+    想 = 想要的 if 想要的 in 语音档们 else 当前语音档()
+    if 档就绪(想):
+        return 想
+    for 档 in 语音档顺序:
+        if 档就绪(档):
+            return 档
+    return ''
 
 
 def 迁移旧模型():
-    """老版本把 fp32 放在 models\\sensevoice-fp32\\；搬成正式的那一份（只搬不删，删另说）。"""
-    目标 = 语音路径('model.onnx')
-    if os.path.exists(目标) and os.path.getsize(目标) > 1024 * 1024:
-        return False
-    老 = os.path.join(模型目录(), 'sensevoice-fp32')
-    旧模型 = os.path.join(老, 'model.onnx')
-    if not (os.path.exists(旧模型) and os.path.getsize(旧模型) > 1024 * 1024):
-        return False
-    try:
-        os.makedirs(模型目录(), exist_ok=True)
-        import shutil
-        shutil.move(旧模型, 目标)
-        旧词表 = os.path.join(老, 'tokens.txt')
-        if os.path.exists(旧词表):
-            shutil.move(旧词表, 语音路径('tokens.txt'))
-        return True
-    except Exception:
-        return False
+    """把老版本摆错地方的模型搬到该在的地方（只搬不删）。返回搬没搬。"""
+    搬了 = False
+    for 老目录名, 档 in (('sensevoice-fp32', 'fp32'), ('paraformer', 'paraformer')):
+        老 = os.path.join(模型目录(), 老目录名)
+        源 = os.path.join(老, 'model.onnx')
+        if not (os.path.exists(源) and os.path.getsize(源) > 1024 * 1024):
+            continue
+        if 档就绪(档):
+            continue
+        目标目录 = 档目录(档)
+        try:
+            os.makedirs(目标目录, exist_ok=True)
+            shutil.move(源, os.path.join(目标目录, 'model.onnx'))
+            老词表 = os.path.join(老, 'tokens.txt')
+            if os.path.exists(老词表):
+                shutil.move(老词表, os.path.join(目标目录, 'tokens.txt'))
+            搬了 = True
+        except Exception:
+            pass
+    # 0.2.x 的小模型直接摆在 models\ 根上，名字是 model.int8.onnx
+    老小 = os.path.join(模型目录(), 'model.int8.onnx')
+    if os.path.exists(老小) and not 档就绪('int8'):
+        try:
+            os.makedirs(档目录('int8'), exist_ok=True)
+            shutil.move(老小, os.path.join(档目录('int8'), 'model.onnx'))
+            搬了 = True
+        except Exception:
+            pass
+    return 搬了
 
 
 def 语音路径(名):
+    """（老接口）models\\ 根上那个文件 —— 就是 fp32 那一档。"""
     return os.path.join(模型目录(), 名)
 
 
@@ -239,34 +336,34 @@ def 内置语音(名):
     return ''
 
 
+def silero路(目录=''):
+    """VAD 那个小模型在哪：这一档目录里有就用它，没有就从内置那边借（别因为缺它整条路断掉）。"""
+    本地 = os.path.join(目录 or 当前档目录(), 'silero_vad.onnx')
+    if os.path.exists(本地):
+        return 本地
+    return 内置语音('silero_vad.onnx') or 本地
+
+
 def 语音就绪():
-    """三个文件齐了才算能听。silero 允许从内置那里借。老版本留下的 fp32 会先自动搬过来。"""
+    """任何一档能听就算能听。老版本留在别处的模型会先自动搬过来。"""
     try:
         迁移旧模型()
     except Exception:
         pass
-    for 名 in 语音文件:
-        if not os.path.exists(语音路径(名)):
-            return False
-        if os.path.getsize(语音路径(名)) < 1024:
-            return False
-    西 = 语音路径('silero_vad.onnx')
-    if not os.path.exists(西):
-        if 内置语音('silero_vad.onnx'):
-            return True
-        return False
-    return True
+    return bool(可用档())
 
 
-def 补内置语音():
-    """把内置的 silero_vad.onnx 拷到用户目录（只拷一次，缺了才拷）。"""
-    目标 = 语音路径('silero_vad.onnx')
+def 补内置语音(档=''):
+    """把内置的 silero_vad.onnx 拷到这一档目录里（只拷一次，缺了才拷）。"""
+    目录 = 档目录(档)
+    目标 = os.path.join(目录, 'silero_vad.onnx')
     if os.path.exists(目标):
         return True
     源 = 内置语音('silero_vad.onnx')
     if not 源:
         return False
     try:
+        os.makedirs(目录, exist_ok=True)
         shutil.copyfile(源, 目标)
         return True
     except Exception:

@@ -3,7 +3,7 @@
 //
 // 不碰真实的 DSH：用临时 DSH_HOME + 假 ctx，真的起一个小口子，真的发 HTTP 过去。
 
-import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, readFileSync, rmSync, existsSync, utimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -432,6 +432,33 @@ await 等(100)
   查('inject 数组里不含 timer / attachments',
     (Array.isArray(插件.inject) ? 插件.inject : []).every((x) => x !== 'timer' && x !== 'attachments'),
     JSON.stringify(插件.inject))
+}
+
+
+// ---------- 截图自动清理（0.7.9）----------
+{
+  const 图家 = mkdtempSync(join(tmpdir(), 'fishshots-'))
+  const 造 = (名, 多少天前) => {
+    const 路 = join(图家, 名)
+    writeFileSync(路, 'x')
+    const 旧 = Date.now() - 多少天前 * 24 * 60 * 60 * 1000
+    utimesSync(路, new Date(旧), new Date(旧))
+  }
+  造('新1.jpg', 0)
+  造('新2.jpg', 1)
+  造('老1.jpg', 40)
+  造('老2.jpg', 45)
+  writeFileSync(join(图家, '别动.txt'), 'x')
+  let 果 = 插件.清旧截图(图家, 30, 0)
+  查('截图清理：太老的删掉、新的留着', 果.删了 === 2 && 果.剩 === 2, JSON.stringify(果))
+  查('截图清理：不是图片的不动', existsSync(join(图家, '别动.txt')))
+  果 = 插件.清旧截图(图家, 0, 1)
+  查('截图清理：张数超了只留最新的', 果.删了 === 1 && 果.剩 === 1, JSON.stringify(果))
+  果 = 插件.清旧截图(图家, 0, 0)
+  查('截图清理：两条都是 0 就什么都不删', 果.删了 === 0 && 果.剩 === 1, JSON.stringify(果))
+  果 = 插件.清旧截图(join(图家, '没有这个目录'), 30, 100)
+  查('截图清理：目录还不存在也不报错', 果.删了 === 0 && 果.剩 === 0, JSON.stringify(果))
+  rmSync(图家, { recursive: true, force: true })
 }
 
 rmSync(家, { recursive: true, force: true })

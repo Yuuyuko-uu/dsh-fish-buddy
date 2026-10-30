@@ -60,8 +60,42 @@ class 假应用:
 查('内存里的配置也跟着改了', 应.配置.get('dsh_port') == 8890, 应.配置.get('dsh_port'))
 查('写完会说一句「存好了」', '存好了' in 页.说.get(), 页.说.get())
 
+# ---------- 识别模型三档（1.5.9）----------
+查('默认用小的那一档', paths.当前语音档() == 'int8', paths.当前语音档())
+查('三档都在册', tuple(paths.语音档们) == ('int8', 'fp32', 'paraformer'), tuple(paths.语音档们))
+查('fp32 就摆在 models 根上（老用户不用重下）', paths.档目录('fp32') == paths.模型目录(), paths.档目录('fp32'))
+查('小的那档单独一个子目录', paths.档目录('int8') != paths.模型目录(), paths.档目录('int8'))
+查('paraformer 那档认成 paraformer 引擎', paths.档引擎(paths.档目录('paraformer')) == 'paraformer',
+  paths.档引擎(paths.档目录('paraformer')))
+查('别的档认成 sense 引擎', paths.档引擎(paths.档目录('int8')) == 'sense', paths.档引擎(paths.档目录('int8')))
+查('一档都没装时可用档是空', paths.可用档() == '', paths.可用档())
+
+# ---------- 设置页上的三档模型 ----------
+try:
+    查('设置页有三档模型可选', set(getattr(页, '模型状态们', {})) == set(paths.语音档顺序),
+      getattr(页, '模型状态们', None))
+    查('一开始选中的是配置里那档', 页.模型选.get() in paths.语音档们, 页.模型选.get())
+    页._选模型('fp32')
+    查('点一档就写进配置', paths.读配置().get('语音模型') == 'fp32', paths.读配置().get('语音模型'))
+    查('下载按钮跟着选中那档走', '894' in 页.装钮.cget('text'), 页.装钮.cget('text'))
+    页._选模型('int8')
+    查('换回小的那档也写进配置', paths.读配置().get('语音模型') == 'int8', paths.读配置().get('语音模型'))
+except Exception as e:
+    查('设置页三档模型（%s）' % e, False)
+
 页.销毁()
 根.destroy()
+
+# ---------- 选的那档没装时，要退回装好的那档 ----------
+小目录 = paths.档目录('int8')
+os.makedirs(小目录, exist_ok=True)
+for 名, 长 in (('model.onnx', 4096), ('tokens.txt', 2048)):
+    with open(os.path.join(小目录, 名), 'wb') as f:
+        f.write(b'x' * 长)
+查('装了哪档就报哪档可用', paths.可用档() == 'int8', paths.可用档())
+查('实际用的目录跟着装好的那档走', paths.当前档目录() == 小目录, paths.当前档目录())
+查('选的那档和实际用的那档是两件事', paths.档目录() == 小目录 and paths.当前档目录() == 小目录,
+  (paths.档目录(), paths.当前档目录()))
 
 失败 = sum(1 for x in 结果 if not x)
 print('\n共 %d 项，失败 %d 项' % (len(结果), 失败))

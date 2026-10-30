@@ -206,6 +206,29 @@ class 设置页:
         self.语音状态 = tk.Label(卡, text='', bg=淡卡, fg=字次, anchor='w', justify='left',
                                  wraplength=430, font=('Microsoft YaHei UI', 字号))
         self.语音状态.pack(fill='x')
+        # ⭐ 1.5.9：识别模型三档可选 —— 以前只剩最大那一份，普通电脑的 CPU 吃不消
+        模头 = tk.Frame(卡, bg=淡卡)
+        模头.pack(fill='x', pady=(10, 2))
+        tk.Label(模头, text='识别模型', bg=淡卡, fg=字深, anchor='w',
+                 font=('Microsoft YaHei UI', 字标, 'bold')).pack(side='left')
+        tk.Label(模头, text='越往下越准，也越吃 CPU（小的不一定差，够用就行）', bg=淡卡, fg=字次,
+                 font=('Microsoft YaHei UI', 8)).pack(side='left', padx=(6, 0))
+        self.模型选 = tk.StringVar(value=paths.可用档() or paths.当前语音档())
+        self.模型状态们 = {}
+        for 档 in paths.语音档顺序:
+            项 = paths.语音档们[档]
+            行档 = tk.Frame(卡, bg=淡卡)
+            行档.pack(fill='x')
+            tk.Radiobutton(行档, text='%s　%s' % (项['名'], 项['说']),
+                           value=档, variable=self.模型选,
+                           command=lambda d=档: self._选模型(d),
+                           bg=淡卡, fg=字深, selectcolor=淡卡, activebackground=淡卡,
+                           highlightthickness=0, anchor='w',
+                           font=('Microsoft YaHei UI', 字号)).pack(side='left')
+            状 = tk.Label(行档, text='', bg=淡卡, fg=字次, anchor='w',
+                          font=('Microsoft YaHei UI', 8))
+            状.pack(side='left', padx=(8, 0))
+            self.模型状态们[档] = 状
         self.进度条 = tk.Canvas(卡, height=8, bg='#d5e3ee', highlightthickness=0, bd=0)
         self.进度条.pack(fill='x', pady=(6, 4))
         self.进度件 = self.进度条.create_rectangle(0, 0, 0, 8, fill=蓝, width=0)
@@ -220,6 +243,10 @@ class 设置页:
         self.停钮 = tk.Button(行, text='停', command=self._点停,
                             bg='#cbdae5', fg=字深, relief='flat', font=('Microsoft YaHei UI', 字号), pady=4)
         self.停钮.pack(side='left', padx=(8, 0))
+        # ⭐ 1.5.9：网上下不动的保底入口 —— 自己下好两个文件，直接放进去
+        self.手装钮 = tk.Button(行, text='我自己下好了…', command=self._手装,
+                              bg='#cbdae5', fg=字深, relief='flat', font=('Microsoft YaHei UI', 字号), pady=4)
+        self.手装钮.pack(side='left', padx=(8, 0))
         # ⭐ 麦克风：默认跟着系统走；别人的机器上系统默认常常不是他想用的那只
         卡麦 = self._卡(框)
         麦头 = tk.Frame(卡麦, bg=淡卡)
@@ -1663,22 +1690,83 @@ class 设置页:
         self._刷麦克风()
 
     # ---------- 语音 ----------
+    def _选模型(self, 档):
+        """换一档模型：只写配置，不重下、也不打断正在听的。"""
+        if hasattr(self, '模型选'):
+            self.模型选.set(档)      # 单选钮点自己会先设上；程序里直接调这条也不会错位
+        c = dict(self.配置)
+        c['语音模型'] = 档
+        if not paths.写配置(c):
+            self.说.set('没存上 —— 看看配置目录有没有写权限：' + paths.配置路径())
+            return
+        self.配置.update({'语音模型': 档})
+        self.应用.配置.update({'语音模型': 档})
+        paths.补内置语音(档)
+        self._刷语音状态()
+        self.说.set('模型换成「%s」了 —— 陪看要点一下「开始听」、电话要挂断再打一次才用新的'
+                    % paths.语音档们[档]['名'])
+
     def _刷语音状态(self):
-        就绪 = paths.语音就绪()
+        档 = self.模型选.get() if hasattr(self, '模型选') else paths.当前语音档()
+        能用 = paths.可用档()
+        这一档好了 = paths.档就绪(档)
         self.语音状态.configure(
-            text=('● 已经装好了，电话和陪看都能用' if 就绪 else '○ 还没装 —— 点下面这个按钮，一次装好'),
-            fg=(绿 if 就绪 else 字次))
+            text=('● 已经装好了，电话和陪看都能用' if 能用 else '○ 还没装 —— 选一档，点下面按钮装'),
+            fg=(绿 if 能用 else 字次))
+        for 各档, 状 in getattr(self, '模型状态们', {}).items():
+            好了 = paths.档就绪(各档)
+            在用 = (各档 == 能用)
+            状.configure(text=('✓ 已装' if 好了 else '没装') + ('（正在用这一档）' if 在用 else ''),
+                        fg=(绿 if 好了 else 字次))
+        项 = paths.语音档们.get(档) or {}
         self.语音说明.configure(
-            text=('模型：SenseVoice（最准的那份，894MB）。文件在 %s' % paths.模型目录()) if 就绪
-            else '只下一个模型（约 894MB）+ 词表；下完电话和陪看都能用，不用再下第二次。')
-        self.装钮.configure(text=('重新装' if 就绪 else '装语音（约 894MB，只下一次）'))
+            text=('文件在 %s' % paths.档目录(档)) if 这一档好了
+            else '只下这一档（%s）+ 词表；下完电话和陪看都能用，不用再下第二次。' % 项.get('名', ''))
+        self.装钮.configure(text=('重新装这一档' if 这一档好了
+                                  else '装这个模型（%s）' % 项.get('名', '')))
 
     def _点装(self):
-        if not paths.语音就绪():
-            paths.补内置语音()
+        档 = self.模型选.get() if hasattr(self, '模型选') else paths.当前语音档()
+        if getattr(self.下载, '档', '') != 档:
+            self.下载 = models.一下载器(档)
+        paths.补内置语音(档)
         if self.下载.开始():
             self.说.set('开始下载了，可以关掉这个设置页去看别的，进度会接着走')
         self._轮询()
+
+    def _手装(self):
+        """下不动的人可以自己下 model.onnx + tokens.txt，从这儿直接放进选中的那一档。
+
+        ⚠ 1.5.10：镜像会 302 到 huggingface 的 CDN，有些网络一条路都走不通，
+        与其让人对着「0.0/? MB」干等，不如给个明路。
+        """
+        from tkinter import filedialog
+        档 = self.模型选.get() if hasattr(self, '模型选') else paths.当前语音档()
+        目录 = paths.档目录(档)
+        try:
+            os.makedirs(目录, exist_ok=True)
+        except Exception as e:
+            self.说.set('建不了目录：%s' % e)
+            return
+        选们 = filedialog.askopenfilenames(
+            title='选 model.onnx 和 tokens.txt（可以一次选两个）',
+            filetypes=[('模型和词表', '*.onnx *.txt'), ('全部', '*.*')])
+        if not 选们:
+            return
+        放 = 0
+        for 路 in 选们:
+            名 = os.path.basename(路).lower()
+            目标名 = 'tokens.txt' if 名.endswith('.txt') else 'model.onnx'
+            try:
+                import shutil
+                shutil.copyfile(路, os.path.join(目录, 目标名))
+                放 += 1
+            except Exception as e:
+                self.说.set('拷不进去：%s' % e)
+                return
+        self._刷语音状态()
+        self.说.set('放进「%s」这一档 %d 个文件 —— %s'
+                    % (档, 放, '齐了，可以说话' if paths.档就绪(档) else '还差一个（模型和词表都要有）'))
 
     def _点停(self):
         self.下载.停()

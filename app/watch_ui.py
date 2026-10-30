@@ -281,28 +281,35 @@ def list_audio_processes():
 
 
 class SenseEngine:
-    """SenseVoice —— 全程序只有这一份模型（fp32，894MB，最准的那份）。
+    """陪看用的识别引擎 —— 用设置里选的那一档模型（见 `paths.语音档们`）。
 
-    ⭐ 0.2.5：int8 那 228MB 的小模型和 Paraformer 都退役了，
-    这里不再有「哪一份」的概念，只认 `models\\model.onnx`。
+    ⭐ 1.5.9：三档都能用 —— 小（228MB，省 CPU）/ 大（894MB，最准）/ 最快（78MB，不出标点）。
+    目录名决定用哪个识别器：paraformer 那个目录走 from_paraformer，其余走 from_sense_voice。
     """
 
-    def __init__(self, lang='auto'):
+    def __init__(self, lang='auto', 档=''):
         import sherpa_onnx
         import paths
-        目录 = paths.模型目录()
+        档 = 档 if 档 in paths.语音档们 else paths.可用档()
+        目录 = paths.档目录(档)
         模型 = os.path.join(目录, 'model.onnx')
         词表 = os.path.join(目录, 'tokens.txt')
         if not (os.path.exists(模型) and os.path.exists(词表)):
-            raise RuntimeError('语音模型还没装（设置 → 语音里点「装语音」）')
+            raise RuntimeError('语音模型还没装（设置 → 语音里点「装这个模型」）')
         # ⭐ 1.5.5：4 → 2 线程。实测识别占了 99% 的墙钟时间、整机 CPU 能到 1200%，
         #   前台焦点落在陪看窗口时 Windows 会给前台进程加成，同进程里的识别线程也跟着抢，
         #   外面的播放器就被挤到卡顿（「加载中 0kb/s」）。
         #   2 线程时 7 秒音频约 0.8 秒 —— 认的间隔 1.6 秒，仍然来得及。
-        self.rec = sherpa_onnx.OfflineRecognizer.from_sense_voice(
-            模型, 词表, num_threads=2, use_itn=True,
-            language=('auto' if not lang or lang == 'auto' else lang))
-        self.名 = 'SenseVoice'
+        if paths.档引擎(目录) == 'paraformer':
+            self.rec = sherpa_onnx.OfflineRecognizer.from_paraformer(
+                paraformer=模型, tokens=词表, num_threads=2, sample_rate=16000,
+                feature_dim=80, decoding_method='greedy_search', provider='cpu', debug=False)
+            self.名 = 'Paraformer'
+        else:
+            self.rec = sherpa_onnx.OfflineRecognizer.from_sense_voice(
+                模型, 词表, num_threads=2, use_itn=True,
+                language=('auto' if not lang or lang == 'auto' else lang))
+            self.名 = 'SenseVoice'
 
     def transcribe(self, samples):
         s = self.rec.create_stream()
@@ -312,11 +319,12 @@ class SenseEngine:
 
 
 def 建引擎(名='', lang='auto'):
-    """陪看用的识别引擎。
+    """陪看用的识别引擎 —— 跟着设置里选的那一档走；语言不再给选。
 
-    ⭐ 0.2.5：**只有一个模型**（fp32），语言也不给选。参数留着只是为了兼容老调用和自测。
+    `名` 留成参数只是为了兼容老调用和自测（传 'int8' / 'fp32' / 'paraformer' 能指定档）。
     """
-    return SenseEngine(lang)
+    档 = 名 if 名 in ('int8', 'fp32', 'paraformer') else ''
+    return SenseEngine(lang, 档)
 
 
 class WhisperEngine:
@@ -593,8 +601,7 @@ class Captioner(threading.Thread):
         except Exception:
             pass
         try:
-            # 2026-10-26：模型下拉现在有三种（都是本机识别，随便切）：
-            #   SenseVoice（默认，228MB）/ SenseVoice 高精度（894MB）/ Paraformer（78MB，最省）
+            # 1.5.9：模型改回三档，在「设置 → 语音」里选 —— 陪看这边只跟着走，不再单独给下拉
             self.on_status('正在加载模型…')
             self.engine = 建引擎(self.engine_pick, self.lang)
             self.on_status('模型：%s' % getattr(self.engine, '名', ''))

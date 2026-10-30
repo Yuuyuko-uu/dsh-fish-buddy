@@ -11,6 +11,8 @@ import threading
 
 import numpy as np
 
+from paths import silero路
+
 
 # ⭐ 1.0.6：识别模型**全进程只加载一次**。
 #   以前每个「耳朵」实例都自己 from_sense_voice() 一遍（894MB 的模型），
@@ -23,11 +25,21 @@ def 拿识别器(模型目录, num_threads=4):
     if 键 in _识别器们:
         return _识别器们[键]
     import sherpa_onnx
-    r = sherpa_onnx.OfflineRecognizer.from_sense_voice(
-        model=os.path.join(键[0], 'model.onnx'),
-        tokens=os.path.join(键[0], 'tokens.txt'),
-        num_threads=键[1], use_itn=True, language='zh',
-    )
+    import paths
+    目录 = 键[0]
+    模型 = os.path.join(目录, 'model.onnx')
+    词表 = os.path.join(目录, 'tokens.txt')
+    # ⭐ 1.5.9：目录名叫 paraformer 的那一档要用 from_paraformer 建（它不出标点）
+    if paths.档引擎(目录) == 'paraformer':
+        r = sherpa_onnx.OfflineRecognizer.from_paraformer(
+            paraformer=模型, tokens=词表, num_threads=键[1],
+            sample_rate=16000, feature_dim=80, decoding_method='greedy_search',
+            provider='cpu', debug=False)
+    else:
+        r = sherpa_onnx.OfflineRecognizer.from_sense_voice(
+            model=模型, tokens=词表,
+            num_threads=键[1], use_itn=True, language='zh',
+        )
     _识别器们[键] = r
     return r
 
@@ -86,7 +98,7 @@ class 耳朵:
         self.模型目录 = os.path.abspath(self.模型目录)
         self._识别器 = 拿识别器(self.模型目录, self.num_threads)
         c = sherpa_onnx.VadModelConfig()
-        c.silero_vad.model = os.path.join(self.模型目录, 'silero_vad.onnx')
+        c.silero_vad.model = silero路(self.模型目录)
         c.silero_vad.threshold = 0.35
         # ⭐ 0.5.0：
         #   「安静多久算一句」以前写死 1.2 秒 —— 现在跟设置里那个数走（默认 2.0）。
