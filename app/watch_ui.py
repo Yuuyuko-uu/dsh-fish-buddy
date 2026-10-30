@@ -595,11 +595,21 @@ class Captioner(threading.Thread):
         # ⭐ 1.5.5：把识别线程降到 BELOW_NORMAL。
         #   陪看窗口在前台时，Windows 会给**整个前台进程**加成，识别线程跟着抢 CPU，
         #   外面正在播的软件就被挤卡。降一档正好抵消这个加成（后台时影响很小）。
+        # ⚠ 1.6.1：这里原来是 0x4000 —— 那是**进程类**的 BELOW_NORMAL_PRIORITY_CLASS，
+        #   不是线程优先级；线程那档是 -1（THREAD_PRIORITY_BELOW_NORMAL）。
+        #   传错后每次调用都返回 FALSE（错误码 87），而 ctypes 不抛异常、外面还吞了错，
+        #   所以这行一直静默没生效。现在参数改对，**失败要留一行日志**。
         try:
             import ctypes as _ct
-            _ct.windll.kernel32.SetThreadPriority(_ct.windll.kernel32.GetCurrentThread(), 0x4000)
-        except Exception:
-            pass
+            线程 = _ct.windll.kernel32.GetCurrentThread()
+            好 = _ct.windll.kernel32.SetThreadPriority(线程, -1)
+            if not 好:
+                diag('降优先级没成：SetThreadPriority 返回 FALSE，错误码 %s'
+                     % _ct.windll.kernel32.GetLastError())
+            else:
+                diag('识别线程优先级已降到 BELOW_NORMAL（-1）')
+        except Exception as e:
+            diag('降优先级这一步出错了：%s' % e)
         try:
             # 1.5.9：模型改回三档，在「设置 → 语音」里选 —— 陪看这边只跟着走，不再单独给下拉
             self.on_status('正在加载模型…')
