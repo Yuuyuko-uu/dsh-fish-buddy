@@ -21,7 +21,7 @@ import os
 import time
 import urllib.request
 
-from PIL import Image, ImageGrab
+from PIL import Image, ImageDraw, ImageGrab, ImageFont
 
 import paths
 
@@ -114,3 +114,63 @@ def 发(端口, 字节, 元=None, 超时=6):
             return True, r.read()[:120].decode('utf-8', 'replace')
     except Exception as e:
         return False, str(e)[:80]
+
+
+# ---------- ⭐ 1.6.0：把几张画面拼成一条（竖着排） ----------
+
+def 拼一条(张们, 每格宽=1280, 质量=78):
+    """把几张图竖着拼成一根长条，每格左上角写一句标注。
+
+    张们 = [{'路径': '…jpg', '标': '· 3 分钟前'}, …]
+    返回 (JPEG 字节, 宽, 高)；一张都读不出来就返回 (b'', 0, 0)。
+    """
+    图们 = []
+    for x in (张们 or []):
+        路 = ''
+        标 = ''
+        if isinstance(x, dict):
+            路 = str(x.get('路径') or '')
+            标 = str(x.get('标') or '')
+        elif x:
+            路 = str(x)
+        try:
+            if not 路 or not os.path.exists(路):
+                continue
+            图 = Image.open(路).convert('RGB')
+            if 图.width != 每格宽:
+                高 = max(1, int(round(图.height * 每格宽 / float(图.width))))
+                图 = 图.resize((每格宽, 高), Image.LANCZOS)
+            图们.append((图, 标))
+        except Exception:
+            continue
+    if not 图们:
+        return b'', 0, 0
+    字号 = max(16, int(round(每格宽 / 46.0)))
+    字体 = None
+    for 名字 in ('msyh.ttc', 'simhei.ttf', 'simsun.ttc'):
+        try:
+            字体 = ImageFont.truetype(os.path.join(os.environ.get('WINDIR', 'C:/Windows'), 'Fonts', 名字), 字号)
+            break
+        except Exception:
+            字体 = None
+    if 字体 is None:
+        try:
+            字体 = ImageFont.load_default()
+        except Exception:
+            字体 = None
+    总高 = sum(图.height for 图, _ in 图们)
+    条 = Image.new('RGB', (每格宽, 总高), 'black')
+    y = 0
+    for 图, 标 in 图们:
+        条.paste(图, (0, y))
+        if 标 and 字体 is not None:
+            画 = ImageDraw.Draw(条, 'RGBA')
+            框 = 画.textbbox((0, 0), 标, font=字体)
+            宽标 = (框[2] - 框[0]) if 框 else 0
+            高标 = (框[3] - 框[1]) if 框 else 字号
+            画.rectangle([0, y, min(每格宽, 宽标 + 字号), y + 高标 + 字号 * 0.7], fill=(0, 0, 0, 150))
+            画.text((字号 * 0.5, y + 字号 * 0.25), 标, font=字体, fill=(255, 255, 255, 255))
+        y += 图.height
+    缓 = io.BytesIO()
+    条.save(缓, 'JPEG', quality=int(质量), optimize=False, subsampling=2)
+    return 缓.getvalue(), 条.width, 条.height

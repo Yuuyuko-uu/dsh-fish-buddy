@@ -461,6 +461,26 @@ await 等(100)
   rmSync(图家, { recursive: true, force: true })
 }
 
+
+// ---------- 拼图：只拼 1 分钟以前的、够 3 张才拼（1.6.0）----------
+{
+  const t0 = 1700000000000
+  const 老 = (n) => ({ 路: 'old' + n + '.jpg', 时: t0 - 90000 })
+  const 新 = (n) => ({ 路: 'new' + n + '.jpg', 时: t0 - 5000 })
+  let r = 插件.该拼哪几张([老(1), 老(2), 老(3)], t0)
+  查('拼图：3 张老的 → 该拼', r.该拼 === true && r.老的.length === 3, JSON.stringify(r))
+  r = 插件.该拼哪几张([老(1), 老(2)], t0)
+  查('拼图：2 张老的 → 也拼', r.该拼 === true && r.老的.length === 2, JSON.stringify(r))
+  r = 插件.该拼哪几张([老(1)], t0)
+  查('拼图：只有 1 张老的 → 不拼', r.该拼 === false && r.老的.length === 1, JSON.stringify(r))
+  r = 插件.该拼哪几张([老(1), 老(2), 老(3), 新(1), 新(2)], t0)
+  查('拼图：1 分钟内的新图不参与拼', r.该拼 === true && r.老的.length === 3 && r.新的.length === 2, JSON.stringify(r))
+  r = 插件.该拼哪几张([新(1), 新(2), 新(3)], t0)
+  查('拼图：全是新图 → 一张都不拼', r.该拼 === false && r.新的.length === 3, JSON.stringify(r))
+  r = 插件.该拼哪几张([{ 路: '', 时: t0 - 90000 }, null, 老(1)], t0)
+  查('拼图：没路径/空项直接丢掉', r.老的.length === 1 && r.该拼 === false, JSON.stringify(r))
+}
+
 rmSync(家, { recursive: true, force: true })
 
 const 失败 = 结果.filter((x) => !x.过).length

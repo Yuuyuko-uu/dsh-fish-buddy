@@ -84,7 +84,7 @@ class 回话口:
                 self._回(200, {'ok': True, '说': '鱼搭子的回话口在这儿', '版本': 版本})
 
             def do_POST(self):
-                数据 = self._读体() if self.path.startswith(('/hands/reply', '/hands/device')) else {}
+                数据 = self._读体() if self.path.startswith(('/hands/reply', '/hands/device', '/hands/stitch')) else {}
 
                 if self.path.startswith('/hands/device'):
                     if not callable(设设备):
@@ -106,6 +106,22 @@ class 回话口:
                         return
                     状态['收到'] += 1
                     self._回(200, {'ok': True, '说': 说法 or '换好了'})
+                    return
+
+                if self.path.startswith('/hands/stitch'):
+                    # ⭐ 1.6.0：插件要发「攒着的 3 张」时，请这里拼成一竖条
+                    try:
+                        import frames as _帧
+                        字节, 宽, 高 = _帧.拼一条(数据.get('帧们') or [])
+                    except Exception as e:
+                        self._回(200, {'ok': False, '说': '拼不了：%s' % e})
+                        return
+                    if not 字节:
+                        self._回(200, {'ok': False, '说': '这几张读不出来，拼不了'})
+                        return
+                    import base64 as _b64
+                    self._回(200, {'ok': True, '图片': _b64.b64encode(字节).decode('ascii'),
+                                  '宽': 宽, '高': 高})
                     return
 
                 if self.path.startswith('/hands/shot'):
