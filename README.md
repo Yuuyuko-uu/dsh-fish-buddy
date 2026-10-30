@@ -31,6 +31,16 @@
 
 ## 装好之后怎么配
 
+**先把插件装上**（已经发布到 npm，不用 git）：
+
+```bash
+dsh plugin --profile desktop add dsh-fish-buddy
+```
+
+> 也可以在 npm 上直接看到这个包（含历史版本）：<https://www.npmjs.com/package/dsh-fish-buddy>
+
+装完**重启一次 DSH**；挂件那个 exe 另外去 [Releases](https://github.com/Yuuyuko-uu/dsh-fish-buddy/releases) 下。
+
 **DSH 设置 → 鱼搭子**（第一栏）：
 
 | 项 | 填什么 |
