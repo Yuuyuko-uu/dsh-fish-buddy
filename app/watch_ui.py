@@ -597,38 +597,70 @@ class Captioner(threading.Thread):
         #   外面正在播的软件就被挤卡。降一档正好抵消这个加成（后台时影响很小）。
         # ⚠ 1.6.1：这里原来是 0x4000 —— 那是**进程类**的 BELOW_NORMAL_PRIORITY_CLASS，
         #   不是线程优先级；线程那档是 -1（THREAD_PRIORITY_BELOW_NORMAL）。
-        #   传错后每次调用都返回 FALSE（错误码 87），而 ctypes 不抛异常、外面还吞了错，
-        #   所以这行一直静默没生效。现在参数改对，**失败要留一行日志**。
+        # ⚠ 1.6.2：参数改对之后**照样返回 FALSE、错误码 6（ERROR_INVALID_HANDLE）**。
+        #   真因是句柄来源：GetCurrentThread() 返回的是**伪句柄 -2**，而 ctypes 没声明
+        #   restype 时按 c_int 拿、再按 c_int 传回去，64 位下高位被清成 0x00000000FFFFFFFE，
+        #   送到 SetThreadPriority 手里就不是伪句柄了。
+        #   现在改成 GetCurrentThreadId() + OpenThread() 拿**真句柄**，函数签名（argtypes /
+        #   restype）全部显式声明，并且**用一个私有 WinDLL 实例** —— 全进程共用的
+        #   ctypes.windll.kernel32 被别处改过 argtypes，借用它会互相污染。
+        #   失败要留一行日志，不许再静默吞掉。
         try:
             import ctypes as _ct
-            线程 = _ct.windll.kernel32.GetCurrentThread()
-            好 = _ct.windll.kernel32.SetThreadPriority(线程, -1)
-            if not 好:
-                diag('降优先级没成：SetThreadPriority 返回 FALSE，错误码 %s'
-                     % _ct.windll.kernel32.GetLastError())
+            from ctypes import wintypes as _wt
+            _k32 = _ct.WinDLL('kernel32', use_last_error=True)
+            _k32.GetCurrentThreadId.restype = _wt.DWORD
+            _k32.GetCurrentThreadId.argtypes = []
+            _k32.OpenThread.restype = _wt.HANDLE
+            _k32.OpenThread.argtypes = [_wt.DWORD, _wt.BOOL, _wt.DWORD]
+            _k32.SetThreadPriority.restype = _wt.BOOL
+            _k32.SetThreadPriority.argtypes = [_wt.HANDLE, _ct.c_int]
+            _k32.CloseHandle.restype = _wt.BOOL
+            _k32.CloseHandle.argtypes = [_wt.HANDLE]
+            THREAD_SET_INFORMATION = 0x0020
+            线程号 = _k32.GetCurrentThreadId()
+            线程 = _k32.OpenThread(THREAD_SET_INFORMATION, False, 线程号)
+            if not 线程:
+                diag('降优先级没成：OpenThread 拿不到线程句柄（线程 %s），错误码 %s'
+                     % (线程号, _ct.get_last_error()))
             else:
-                diag('识别线程优先级已降到 BELOW_NORMAL（-1）')
+                try:
+                    if not _k32.SetThreadPriority(线程, -1):
+                        diag('降优先级没成：SetThreadPriority 返回 FALSE，错误码 %s'
+                             % _ct.get_last_error())
+                    else:
+                        diag('识别线程优先级已降到 BELOW_NORMAL（-1）')
+                finally:
+                    _k32.CloseHandle(线程)
         except Exception as e:
-            diag('降优先级这一步出错了：%s' % e)
+            diag('降优先级这一步出错了：%s: %s' % (type(e).__name__, e))
         try:
             # 1.5.9：模型改回三档，在「设置 → 语音」里选 —— 陪看这边只跟着走，不再单独给下拉
             self.on_status('正在加载模型…')
+            diag('识别：正在建引擎（档=%s）' % self.engine_pick)
             self.engine = 建引擎(self.engine_pick, self.lang)
+            diag('识别：引擎好了（%s）' % getattr(self.engine, '名', ''))
             self.on_status('模型：%s' % getattr(self.engine, '名', ''))
         except Exception as e:
+            # ⚠ 1.6.2：这里以前只进界面队列、**日志里一个字都没有** ——
+            #   日志看着就像「程序在后面悄悄死了」。现在日志也留一行。
+            diag('识别：建引擎失败 %s: %s' % (type(e).__name__, e))
             self.on_err('加载模型失败：%s: %s' % (type(e).__name__, e))
             return
         threading.Thread(target=self._process, daemon=True).start()
         if not self.target_pids:
+            diag('识别：一个进程都没勾')
             self.on_err('没勾选进程')
             return
         caps = []
         try:
             from proctap import ProcessAudioCapture as ProcCap
+            diag('识别：要抓 %d 个进程（pid %s）' % (len(self.target_pids), self.target_pids))
             self.on_status('正在抓 %d 个进程 …' % len(self.target_pids))
             for pid in self.target_pids:
                 c = ProcCap(pid, on_data=self._mixer_cb(pid))
                 c.start()
+                diag('识别：pid %s 抓起来了' % pid)
                 caps.append(c)
                 try:
                     fmt = c.get_format()
@@ -641,6 +673,7 @@ class Captioner(threading.Thread):
             while not self.stop_flag.is_set():
                 time.sleep(0.1)
         except Exception as e:
+            diag('识别：抓取失败 %s: %s' % (type(e).__name__, e))
             self.on_err('抓取失败：%s: %s' % (type(e).__name__, e))
         finally:
             for c in caps:
@@ -1015,6 +1048,10 @@ class App:
         if not picked:
             self.status.configure(text='先在左边勾选要听的进程（可多选）')
             return
+        # ⭐ 1.6.2：这一串以前一步日志都不写，出问题只能看到「已告诉插件」那一行，
+        #   后面是黑屏。现在每一步都留一行，崩在哪一步一眼能看出来。
+        diag('陪看：开始（%d 个进程：%s）' % (len(picked),
+                                            '、'.join('%s(%s)' % (n, p) for p, n in picked)))
         if self.cap:
             self.cap.stop()
             self.cap = None
@@ -1038,20 +1075,26 @@ class App:
                              on_line=lambda t, m: self._来一句(t, m),
                              on_err=lambda e: self.q.put(('err', e)),
                              on_status=lambda s: self.q.put(('status', s)))
+        diag('陪看：1/5 识别线程要起了')
         self.cap.start()
+        diag('陪看：2/5 识别线程起来了')
         # ⭐ 0.2.2：屏幕上要是有字幕，就再开一条「读字幕」的腿（比听声音准、也快）
         开字幕 = self._开OCR()
+        diag('陪看：3/5 读字幕=%s' % ('开' if 开字幕 else '没开'))
         # ⭐ 0.3.0：时不时抽一帧给她看（带时间点 + 那会儿的台词）
         开抽帧 = self._开抽帧()
+        diag('陪看：4/5 抽帧=%s' % ('开' if 开抽帧 else '没开'))
         self.btn_stop.configure(state='normal')
         self.btn_start.configure(state='disabled')
         # ⭐ 1.1.6：跟插件说「陪看开了」，它才允许自己开口
         self._通知插件(True)
+        diag('陪看：5/5 通知完插件')
         self.status_text = '正在听  %s ｜ %s%s%s%s' % ('、'.join(n for _, n in picked),
                                                    self.mode.get(), 附注,
                                                    '｜也在读字幕' if 开字幕 else '',
                                                    '｜也会抽帧给她看' if 开抽帧 else '')
         self.status.configure(text='正在加载模型…')
+        diag('陪看：start() 走完了')
 
     def _开OCR(self):
         """框过头就同时读字幕。返回有没有开起来。"""

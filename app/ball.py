@@ -3921,6 +3921,37 @@ def 自测():
 if __name__ == '__main__':
     import tkinter as tk
     import traceback
+    # ⭐ 1.6.2：崩了要留下证据。
+    #   之前程序是「整个进程直接消失」—— 窗口没了、进程表里也没了、Windows 事件日志里
+    #   什么都没有，只能靠「陪看-诊断.log 最后一行是什么」猜崩在哪。
+    #   faulthandler 会把 C 层的崩溃栈写进 崩溃.log；线程里没接住的异常也写一行。
+    import faulthandler as _fh
+    try:
+        崩溃文件 = os.path.join(paths.用户目录(), '崩溃.log')
+        崩溃日志 = open(崩溃文件, 'a', encoding='utf-8')
+        崩溃日志.write('\n===== %s 启动（pid %s，版本 %s）=====\n'
+                       % (time.strftime('%Y-%m-%d %H:%M:%S'), os.getpid(),
+                          __import__('version').版本号))
+        崩溃日志.flush()
+        _fh.enable(崩溃日志, all_threads=True)
+    except Exception:
+        崩溃日志 = None
+
+    def _线程崩了(args):
+        try:
+            with open(os.path.join(paths.用户目录(), '崩溃.log'), 'a', encoding='utf-8') as f:
+                f.write('\n[%s] 线程「%s」里有没接住的异常：\n'
+                        % (time.strftime('%Y-%m-%d %H:%M:%S'),
+                           getattr(args.thread, 'name', '?') if args.thread else '?'))
+                traceback.print_exception(args.exc_type, args.exc_value, args.exc_traceback, file=f)
+                f.flush()
+        except Exception:
+            pass
+
+    try:
+        threading.excepthook = _线程崩了
+    except Exception:
+        pass
     开DPI()
     if '--selftest' in sys.argv:
         自测()
