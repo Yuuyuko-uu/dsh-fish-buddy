@@ -299,6 +299,45 @@ class 设置页:
                  bg=淡卡, fg=字次, anchor='w', justify='left', wraplength=430,
                  font=('Microsoft YaHei UI', 8)).pack(fill='x', pady=(6, 0))
 
+        # ⭐ 1.6.3（issue #2）：收音门限（音量）—— 跟上面那个「安静几秒」是两回事
+        卡音 = self._卡(框)
+        tk.Label(卡音, text='多小声算没说话（收音门限）', bg=淡卡, fg=字深, anchor='w',
+                 font=('Microsoft YaHei UI', 字标, 'bold')).pack(fill='x')
+        行门 = tk.Frame(卡音, bg=淡卡)
+        行门.pack(fill='x', pady=(6, 0))
+        tk.Label(行门, text='低于', bg=淡卡, fg=字次,
+                 font=('Microsoft YaHei UI', 字号)).pack(side='left')
+        self.收音门限 = tk.StringVar(value=str(self.配置.get('收音门限', 0) or 0))
+        框门 = tk.Entry(行门, textvariable=self.收音门限, width=5, bg='#ffffff', relief='flat',
+                       font=('Microsoft YaHei UI', 字号), highlightthickness=1,
+                       highlightbackground=淡线)
+        框门.pack(side='left', padx=6, ipady=3)
+        tk.Label(行门, text='% 的声音，就当没说话', bg=淡卡, fg=字次,
+                 font=('Microsoft YaHei UI', 字号)).pack(side='left')
+        self.门已存 = tk.Label(行门, text='', bg=淡卡, fg='#3f7a4f',
+                              font=('Microsoft YaHei UI', 9))
+        self.门已存.pack(side='left', padx=(8, 0))
+        框门.bind('<Return>', lambda e: (self._存语音(), self._闪存好(self.门已存), 'break')[-1])
+        框门.bind('<FocusOut>', lambda e: self._存语音())
+        框门.bind('<KeyRelease>', lambda e: self._排存(self.门已存, self._存语音))
+        # ⭐ 1.6.3：说明**一句一行**（糊成一整段最难读，用户一眼扫不到重点）
+        for 句 in ('0 = 不挡（跟以前一样）。',
+                   '开着功放、风扇、机械键盘时，背景声会被当成「有人在说话」送去识别。',
+                   '低于这个音量的直接丢掉，连识别都不送。',
+                   '不知道填多少：点下面「测一下」，它听两秒告诉你就该填几。',
+                   '改完下次开麦生效，正在打的电话不会被打断。'):
+            tk.Label(卡音, text=句, bg=淡卡, fg=字次, anchor='w', justify='left',
+                     wraplength=430, font=('Microsoft YaHei UI', 8)).pack(fill='x', pady=(3, 0))
+        行测 = tk.Frame(卡音, bg=淡卡)
+        行测.pack(fill='x', pady=(6, 0))
+        tk.Button(行测, text='测一下', command=self._测音量, bg='#cbdae5', fg=字深, relief='flat',
+                  font=('Microsoft YaHei UI', 8), pady=2, padx=10).pack(side='left')
+        tk.Label(行测, text='　听两秒，量一下现在的环境声', bg=淡卡, fg=字次,
+                 font=('Microsoft YaHei UI', 8)).pack(side='left')
+        self.测音量说 = tk.Label(卡音, text='', bg=淡卡, fg='#3f7a4f', anchor='w', justify='left',
+                               wraplength=430, font=('Microsoft YaHei UI', 8))
+        self.测音量说.pack(fill='x', pady=(4, 0))
+
     # ---------- 2 连接 ----------
     def _建连接(self):
         框 = self._新页('连接')
@@ -1197,6 +1236,18 @@ class 设置页:
         self.键说2.pack(side='left', padx=(8, 0))
         tk.Label(行键2, text='　说话 + 顺手截一张屏', bg=淡卡, fg=字次,
                  font=('Microsoft YaHei UI', 8)).pack(side='left')
+        # ⭐ 1.6.3（issue #2）：「按一下」就开 / 关电话模式（跟上面那两个「按住」不一样，是一按一换）
+        行键3 = tk.Frame(卡热, bg=淡卡)
+        行键3.pack(fill='x', pady=(6, 0))
+        tk.Button(行键3, text='录一个键', command=lambda: self._录键('电话开关键', '电话开关名', '键电话',
+                                                                '记下了：以后按一下「%s」就开 / 关电话模式'),
+                  bg='#cbdae5', fg=字深, relief='flat',
+                  font=('Microsoft YaHei UI', 8), pady=2, padx=10).pack(side='left')
+        self.键电话 = tk.Label(行键3, text=self._键名('电话开关键', '电话开关名'), bg=淡卡, fg=字次,
+                              font=('Microsoft YaHei UI', 9))
+        self.键电话.pack(side='left', padx=(8, 0))
+        tk.Label(行键3, text='　按一下：开 / 关电话模式', bg=淡卡, fg=字次,
+                 font=('Microsoft YaHei UI', 8)).pack(side='left')
         行热框 = tk.Frame(卡热, bg=淡卡)
         行热框.pack(fill='x', pady=(6, 0))
         tk.Button(行热框, text='带图时只截哪块', command=lambda: self._框截图('热键截图框'),
@@ -1312,8 +1363,11 @@ class 设置页:
     鼠标键们 = ((0x01, '鼠标左键'), (0x02, '鼠标右键'), (0x04, '鼠标中键'),
               (0x05, '鼠标侧键1'), (0x06, '鼠标侧键2'))
 
-    def _录键(self, 键项='按住说键', 名项='按住说名', 标签名='键说1'):
-        """录一个键：键盘走 Tk 的按键事件，**鼠标走轮询**（Tk 根本收不到鼠标键）。"""
+    def _录键(self, 键项='按住说键', 名项='按住说名', 标签名='键说1', 说法='以后按住「%s」就能说话'):
+        """录一个键：键盘走 Tk 的按键事件，**鼠标走轮询**（Tk 根本收不到鼠标键）。
+
+        ⭐ 1.6.3（issue #2）：加 `说法` —— 「按住说话」和「按一下开/关电话」存完之后的提示不一样。
+        """
         try:
             窗 = tk.Toplevel(self.父)
             窗.title('按一下你要用的键')
@@ -1342,7 +1396,7 @@ class 设置页:
                             标签.configure(text=self._键名(键项, 名项))
                     except Exception:
                         pass
-                    self.说.set('记下了：以后按住「%s」就能说话' % 名)
+                    self.说.set('记下了：' + (说法 % 名))
                 try:
                     窗.destroy()
                 except Exception:
@@ -1900,6 +1954,12 @@ class 设置页:
         except Exception:
             v = 2.0
         c['断句静音秒'] = max(0.4, min(8.0, round(v, 1)))
+        # ⭐ 1.6.3（issue #2）：收音门限（音量百分比，0 = 不挡）
+        try:
+            门 = int(float(str(self.收音门限.get()).strip() or 0))
+        except Exception:
+            门 = 0
+        c['收音门限'] = max(0, min(100, 门))
         try:
             落 = paths.写配置(c)
         except Exception:
@@ -1907,12 +1967,63 @@ class 设置页:
         if 落:
             self.应用.配置.update(c)
             try:
-                self.说.set('存好了：安静 %s 秒算一句' % c['断句静音秒'])
+                self.说.set('存好了：安静 %s 秒算一句' % c['断句静音秒']
+                          + ('；收音门限 %d%%' % c['收音门限'] if c['收音门限'] else '；收音门限关着'))
             except Exception:
                 pass
         # ⚠ 1.1.3：这里以前会发「换麦」→ 挂断再开通话。
         #   只是改「安静几秒算一句」，却把正在打电话的电话毙掉，重开还可能失败。
         #   现在只存数字（新值下一次开麦时生效），不动正在跑的电话。
+
+    def _测音量(self):
+        """⭐ 1.6.3：听两秒，量一下**安静时**的环境音量，顺手给出建议的收音门限。
+
+        为什么要这个按钮：光说「填 5～15」等于没给办法 —— 每个人麦克风增益差很多，
+        让用户自己猜还不如直接量一次。量到的峰值 × 1.6 就是建议值（留一点余量）。
+        ⚠ 麦克风打不开要说清楚（比如被别的程序独占），不许静默失败。
+        """
+        提示 = getattr(self, '测音量说', None)
+
+        def 说(文, 色='#3f7a4f'):
+            try:
+                if 提示 is not None:
+                    提示.configure(text=文, fg=色)
+            except Exception:
+                pass
+
+        说('正在听两秒…（这会儿先别说话）', 字次)
+        try:
+            self.应用.根.update_idletasks()
+        except Exception:
+            pass
+        try:
+            import numpy as np
+            import sounddevice as sd
+            设备 = self.配置.get('mic_device')
+            采样 = 16000
+            块们 = []
+            with sd.InputStream(samplerate=采样, channels=1, dtype='float32',
+                                device=设备, blocksize=1024) as 流:
+                for _ in range(max(1, int(采样 * 2 / 1024))):
+                    数据, _溢出 = 流.read(1024)
+                    块们.append(np.asarray(数据, dtype='float32').reshape(-1))
+            a = np.concatenate(块们) if 块们 else np.zeros(0, np.float32)
+        except Exception as e:
+            说('量不了：%s（麦克风被别的程序占着？）' % e, 红)
+            return
+        if a.size == 0:
+            说('没听到任何声音 —— 看一眼麦克风是不是选错了', 红)
+            return
+        峰 = float(np.abs(a).max())
+        峰 = min(1.0, max(0.0, 峰))
+        建议 = int(max(1, min(60, round(峰 * 100 * 1.6))))
+        try:
+            self.收音门限.set(str(建议))
+        except Exception:
+            pass
+        self._存语音()
+        self._闪存好(getattr(self, '门已存', None))
+        说('刚才最大音量 %.1f%% —— 安静时量的，就按 %d 填（已经存好了）' % (峰 * 100, 建议))
 
     def _闪存好(self, 提示位):
         try:

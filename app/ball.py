@@ -2342,6 +2342,46 @@ class 鱼搭子:
             self._自检一步()
         except Exception:
             pass
+        # ⭐ 1.6.3（issue #2）：「按一下」开 / 关电话模式 —— 跟上面那两个「按住」不一样，是一按一换。
+        #   同一个轮询里做（80ms），所以不额外挂键盘钩子，也不加新的线程。
+        try:
+            键 = int(配置.get('电话开关键') or 0)
+        except Exception:
+            键 = 0
+        if 键 > 0:
+            try:
+                import ctypes as _ct
+                按下 = bool(_ct.windll.user32.GetAsyncKeyState(键) & 0x8000)
+            except Exception:
+                按下 = False
+            记 = getattr(self, '_按着们', None)
+            if 记 is None:
+                记 = self._按着们 = {}
+            上次 = 记.get('电话开关键', False)
+            # 鼠标键会抖（跟按住说话那里同一个毛病）：连续几次读不到才算松开
+            松数 = getattr(self, '_松开计数', None)
+            if 松数 is None:
+                松数 = self._松开计数 = {}
+            要连几次 = 3 if 键 in (1, 2, 4, 5, 6) else 1
+            if 按下:
+                松数['电话开关键'] = 0
+            else:
+                松数['电话开关键'] = int(松数.get('电话开关键', 0)) + 1
+                if 松数['电话开关键'] < 要连几次:
+                    按下 = 上次
+            记['电话开关键'] = 按下
+            if 按下 and not 上次:
+                try:
+                    记右键('按下电话开关键（键码 %d）' % 键)
+                except Exception:
+                    pass
+                try:
+                    self._切电话开关()
+                except Exception as e:
+                    try:
+                        记右键('电话开关键处理出错：%s' % e)
+                    except Exception:
+                        pass
         try:
             self.根.after(80, self._热键轮询)
         except Exception:
@@ -2803,7 +2843,7 @@ class 鱼搭子:
                 pass
 
     def _取一句(self, 文本):
-        """把她的话收成弹幕用的文本：去掉 markdown 记号，段落之间留换行。**不截断**。
+        """把回话收成弹幕用的文本：去掉 markdown 记号，段落之间留换行。**不截断**。
 
         ⭐ 0.9.9：以前只取第一行 —— 她分两段说的话，第二段整个丢掉（框里只剩第一条）。
         现在整段都收，飘的时候拆成几条依次滑，框里一段一条。
@@ -3572,7 +3612,7 @@ def 自测():
                  and callable(getattr(搭.陪看程序, '不要字幕', None))
                  and callable(getattr(搭.陪看程序, '整屏', None))))
     断言.append(('陪看面板上写着现在框到哪儿了', hasattr(搭.陪看程序, '框说明') if 搭.陪看程序 else False))
-    # ⭐ 气泡：不装朗读桥也能看见她的话
+    # ⭐ 气泡：不装朗读桥也能看见回话
     try:
         图路 = os.path.join(paths.资源目录(), 'assets', '气泡框.png')
         字体路 = os.path.join(paths.资源目录(), 'assets', '字体', 'ZCOOLKuaiLe-Regular.ttf')

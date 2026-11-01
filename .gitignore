@@ -7,3 +7,6 @@ __pycache__/
 *.log
 app/_*.py
 app/config.json
+
+# PyInstaller 的工作目录（spec 本身要留着，只忽略它生成的同名目录）
+app/build/*/

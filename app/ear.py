@@ -113,8 +113,19 @@ class 耳朵:
         c.silero_vad.min_speech_duration = 0.1
         c.silero_vad.max_speech_duration = 15.0
         c.sample_rate = self.sample_rate
+        # ⭐ 1.6.3（issue #2）：收音门限（音量）。0 = 不挡。
+        #   跟 VAD 那个 threshold 是**两回事**：VAD 判「像不像人声」，这里判「够不够大声」。
+        #   开着功放 / 风扇时，光靠 VAD 会把音乐当成人说话 —— 这一道先把小声的全丢掉。
+        门限 = 0
+        try:
+            from paths import 读配置
+            门限 = int(float(读配置().get('收音门限') or 0))
+        except Exception:
+            pass
+        self._门限 = max(0, min(100, 门限)) / 100.0
         self._vad = sherpa_onnx.VoiceActivityDetector(c, buffer_size_in_seconds=30)
-        self.记一笔('模型和 VAD 都好了（安静 %.1f 秒算一句）' % 静音秒)
+        self.记一笔('模型和 VAD 都好了（安静 %.1f 秒算一句）' % 静音秒
+                    + (('；收音门限 %.0f%%（低于它的声音直接丢掉）' % (self._门限 * 100)) if self._门限 > 0 else '；收音门限关着'))
 
     def _认(self, samples):
         s = self._识别器.create_stream()
@@ -157,6 +168,22 @@ class 耳朵:
                         self._峰值 = max(self._峰值, float(abs(chunk).max()))
                     except Exception:
                         pass
+                    # ⭐ 1.6.3（issue #2）：音量门限 —— 小声的一块直接当没说话，连 VAD 都不喂。
+                    #   ⚠ 但「松手定稿」必须照做，否则说话人松了手，这句就发不出去。
+                    if getattr(self, '_门限', 0) > 0:
+                        try:
+                            这块峰 = float(abs(chunk).max())
+                        except Exception:
+                            这块峰 = 1.0
+                        if 这块峰 < self._门限:
+                            if getattr(self, '_马上', None) is not None and self._马上.is_set():
+                                self._马上.clear()
+                                try:
+                                    self._vad.flush()
+                                except Exception:
+                                    pass
+                                self._排空()
+                            continue
                     if not getattr(self, '_收听中', True):
                         # 没按着说话：声音不进识别（麦克风只是开着，起得快）。
                         # ⚠ 1.2.5：但**松手定稿的请求**必须照样处理 ——
