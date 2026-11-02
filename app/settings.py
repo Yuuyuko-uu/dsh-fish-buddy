@@ -1009,6 +1009,20 @@ class 设置页:
             pass
         菜.pack(side='left', padx=6)
 
+        # ⭐ 1.6.8：框整体大小（百分比）—— 框和框里的字一起缩。
+        #   跟上面「悬浮窗大小」用同一个样子（小一点 / 数字 / 大一点），别一处输入框一处按钮。
+        行缩 = tk.Frame(卡2, bg=淡卡)
+        行缩.pack(fill='x', pady=(6, 0))
+        tk.Label(行缩, text='框大小', bg=淡卡, fg=字次,
+                 font=('Microsoft YaHei UI', 字号)).pack(side='left', padx=(0, 6))
+        tk.Button(行缩, text='小一点', command=lambda: self._调框大小(-10), bg='#cbdae5', fg=字深,
+                  relief='flat', font=('Microsoft YaHei UI', 字号), pady=2, padx=10).pack(side='left')
+        self.框大小标签 = tk.Label(行缩, text=self._框大小文字(), bg=淡卡, fg=字次,
+                                font=('Microsoft YaHei UI', 字号))
+        self.框大小标签.pack(side='left', padx=6)
+        tk.Button(行缩, text='大一点', command=lambda: self._调框大小(10), bg='#cbdae5', fg=字深,
+                  relief='flat', font=('Microsoft YaHei UI', 字号), pady=2, padx=10).pack(side='left')
+
         # ⭐ 1.0.2：截图 —— 游戏模式自己截 / 一个键随时截
         卡拍 = self._卡(框)
         self.游戏截图勾 = tk.BooleanVar(value=bool(self.配置.get('游戏截图开', False)))
@@ -1201,6 +1215,10 @@ class 设置页:
         except Exception:
             c['框字号'] = 20
         try:
+            c['框大小'] = max(60, min(200, int(getattr(self, '_框大小值', 100) or 100)))
+        except Exception:
+            c['框大小'] = 100
+        try:
             c['弹幕速度秒'] = max(1.0, min(30.0, float(str(self.弹幕速.get()).strip() or 6)))
         except Exception:
             c['弹幕速度秒'] = 6
@@ -1218,9 +1236,11 @@ class 设置页:
             c['弹幕接续'] = 50
         # ⭐ 1.1.5：什么都没改就别写、也别重建 —— 以前每敲一下就关掉旧框建个新框，
         #   设置页被抢焦点，一直闪，弹幕也跟着卡。
+        # ⚠ 新增设置项一定要加进这个清单 —— 不在清单里的话，
+        #   只改它会被判成「没改动」直接 return，界面上就是"调了没用"（框大小 1.6.8 就踩过）。
         要改 = {k: c.get(k) for k in ('弹幕开', '弹幕框开', '弹幕框位置', '弹幕位置', '弹幕字体',
                                      '框字体', '弹幕颜色', '弹幕描边', '弹幕帧率', '框字号',
-                                     '弹幕速度秒', '弹幕字号', '弹幕最多', '弹幕接续')}
+                                     '弹幕速度秒', '弹幕字号', '弹幕最多', '弹幕接续', '框大小')}
         现在 = {k: self.应用.配置.get(k) for k in 要改}
         if 要改 == 现在:
             self.说.set('没改动')
@@ -1345,10 +1365,6 @@ class 设置页:
         卡2 = self._卡(框)
         tk.Label(卡2, text='悬浮窗大小', bg=淡卡, fg=字深, anchor='w',
                  font=('Microsoft YaHei UI', 字标, 'bold')).pack(fill='x')
-        tk.Label(卡2, text='屏幕缩放（比如远程把 125% 调成 150%）变了，它会自己跟着变大变小；'
-                          '觉得不合适就在这儿手动调。',
-                 bg=淡卡, fg=字次, anchor='w', justify='left', wraplength=430,
-                 font=('Microsoft YaHei UI', 8)).pack(fill='x')
         行2 = tk.Frame(卡2, bg=淡卡)
         行2.pack(fill='x', pady=(6, 0))
         tk.Button(行2, text='小一点', command=lambda: self._调大小(-0.1), bg='#cbdae5', fg=字深,
@@ -1358,14 +1374,6 @@ class 设置页:
         self.大小标签.pack(side='left', padx=6)
         tk.Button(行2, text='大一点', command=lambda: self._调大小(0.1), bg='#cbdae5', fg=字深,
                   relief='flat', font=('Microsoft YaHei UI', 字号), pady=2, padx=10).pack(side='left')
-        tk.Button(行2, text='跟着系统', command=self._跟系统, bg='#cbdae5', fg=字深,
-                  relief='flat', font=('Microsoft YaHei UI', 8), pady=2, padx=8).pack(side='left', padx=(6, 0))
-        # ⭐ 0.6.1：默认纯像素，勾了才跟系统缩放
-        self.跟随勾 = tk.BooleanVar(value=bool(self.配置.get('跟随系统缩放')))
-        tk.Checkbutton(卡2, text='跟着系统缩放变大变小（不勾 = 固定像素，换台机器也一样大）',
-                       variable=self.跟随勾, command=self._存跟随, bg=淡卡, fg=字次,
-                       activebackground=淡卡, selectcolor=淡卡, anchor='w',
-                       font=('Microsoft YaHei UI', 8)).pack(fill='x', pady=(6, 0))
 
         # ⭐ 2026-10-27：不装朗读桥 / TTS，也要能看见她说了什么 —— 冒个气泡
         卡3 = self._卡(框)
@@ -2121,6 +2129,22 @@ class 设置页:
                 self.说.set('没调成：%s' % e)
         self._刷大小()
 
+    # ---------- 弹幕框大小 ----------
+    def _框大小文字(self):
+        值 = int(getattr(self, '_框大小值', None) or int(self.配置.get('框大小') or 100))
+        return '%d%%' % 值
+
+    def _调框大小(self, 增减):
+        """框和框里的字一起缩 —— 跟「悬浮窗大小」一样，按 10% 一档走。"""
+        值 = int(getattr(self, '_框大小值', None) or int(self.配置.get('框大小') or 100))
+        值 = max(60, min(200, 值 + int(增减)))
+        self._框大小值 = 值
+        try:
+            self.框大小标签.configure(text=self._框大小文字())
+        except Exception:
+            pass
+        self._存游戏()
+
     def _跟系统(self):
         跟 = getattr(self.应用, '跟系统缩放', None)
         if callable(跟):
@@ -2139,7 +2163,7 @@ class 设置页:
     # ⭐ 0.6.1：勾了「跟着系统缩放」才会乘屏幕缩放（默认不勾 = 纯像素）
     def _存跟随(self):
         c = dict(paths.读配置() or {})
-        c['跟随系统缩放'] = bool(self.跟随勾.get())
+        c['跟随系统缩放'] = bool(self.配置.get('跟随系统缩放'))   # 界面上不再给开关，保持原值
         try:
             落 = paths.写配置(c)
         except Exception:
