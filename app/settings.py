@@ -207,17 +207,27 @@ class 设置页:
                                  wraplength=430, font=('Microsoft YaHei UI', 字号))
         self.语音状态.pack(fill='x')
         # ⭐ 1.5.9：识别模型三档可选 —— 以前只剩最大那一份，普通电脑的 CPU 吃不消
+        # ⭐ 1.6.4：分两栏 —— 上面是「没有 N 卡」（现有三档，全跑 CPU），下面是「有 N 卡」。
+        #    以前三档平铺成一行行，谁也看不出「我这台该选哪个」；现在按**你是什么显卡**分组。
         模头 = tk.Frame(卡, bg=淡卡)
         模头.pack(fill='x', pady=(10, 2))
         tk.Label(模头, text='识别模型', bg=淡卡, fg=字深, anchor='w',
                  font=('Microsoft YaHei UI', 字标, 'bold')).pack(side='left')
-        tk.Label(模头, text='越往下越准，也越吃 CPU（小的不一定差，够用就行）', bg=淡卡, fg=字次,
-                 font=('Microsoft YaHei UI', 8)).pack(side='left', padx=(6, 0))
         self.模型选 = tk.StringVar(value=paths.可用档() or paths.当前语音档())
         self.模型状态们 = {}
+
+        # ---------- 第一栏：没有 NVIDIA 显卡 ----------
+        栏一 = tk.Frame(卡, bg=淡卡)
+        栏一.pack(fill='x', pady=(8, 0))
+        头一 = tk.Frame(栏一, bg='#e3eef6')
+        头一.pack(fill='x')
+        tk.Label(头一, text='① 没有 NVIDIA 显卡（AMD / 核显 / 就用 CPU）', bg='#e3eef6', fg=字深,
+                 anchor='w', font=('Microsoft YaHei UI', 字号, 'bold')).pack(fill='x', padx=6, pady=3)
+        tk.Label(栏一, text='这三档都跑在 CPU 上：小的省、大的准。', bg=淡卡, fg=字次, anchor='w',
+                 font=('Microsoft YaHei UI', 8)).pack(fill='x', pady=(3, 2))
         for 档 in paths.语音档顺序:
             项 = paths.语音档们[档]
-            行档 = tk.Frame(卡, bg=淡卡)
+            行档 = tk.Frame(栏一, bg=淡卡)
             行档.pack(fill='x')
             tk.Radiobutton(行档, text='%s　%s' % (项['名'], 项['说']),
                            value=档, variable=self.模型选,
@@ -229,6 +239,50 @@ class 设置页:
                           font=('Microsoft YaHei UI', 8))
             状.pack(side='left', padx=(8, 0))
             self.模型状态们[档] = 状
+
+        # ---------- 第二栏：有 NVIDIA 显卡 ----------
+        栏二 = tk.Frame(卡, bg=淡卡)
+        栏二.pack(fill='x', pady=(12, 0))
+        头二 = tk.Frame(栏二, bg='#e6f2e9')
+        头二.pack(fill='x')
+        tk.Label(头二, text='② 有 NVIDIA 显卡（用显卡跑，几乎不占 CPU）', bg='#e6f2e9', fg=字深,
+                 anchor='w', font=('Microsoft YaHei UI', 字号, 'bold')).pack(fill='x', padx=6, pady=3)
+        tk.Label(栏二, text='要单独下一个 GPU 引擎；下完自动试跑一次，通过了才给你选。',
+                 bg=淡卡, fg=字次, anchor='w', justify='left', wraplength=430,
+                 font=('Microsoft YaHei UI', 8)).pack(fill='x', pady=(3, 4))
+        行卡 = tk.Frame(栏二, bg=淡卡)
+        行卡.pack(fill='x')
+        # ⚠ 「用显卡跑」是**另一个变量**：模型档（三选一）和设备（cpu/cuda）是两件事。
+        #   以前想把它做成第四档 —— 那样 `档目录`/`档就绪` 全都要改，还会把 config 写成一个没有目录的档。
+        self.设备选 = tk.StringVar(value=paths.当前设备())
+        self.N卡选 = tk.Radiobutton(行卡, text='用显卡跑（快、不吃 CPU）',
+                                    value='cuda', variable=self.设备选,
+                                    command=self._选N卡,
+                                    bg=淡卡, fg=字深, selectcolor=淡卡, activebackground=淡卡,
+                                    highlightthickness=0, anchor='w',
+                                    font=('Microsoft YaHei UI', 字号))
+        self.N卡选.pack(side='left')
+        self.N卡状 = tk.Label(行卡, text='', bg=淡卡, fg=字次, anchor='w',
+                             font=('Microsoft YaHei UI', 8))
+        self.N卡状.pack(side='left', padx=(8, 0))
+        self.已装CUDA = tk.BooleanVar(value=bool(self.配置.get('我已装CUDA', False)))
+        tk.Checkbutton(栏二, text='我已经装过 CUDA 12 + cuDNN 9（只下 192MB 的引擎）',
+                       variable=self.已装CUDA, command=self._存已装CUDA,
+                       bg=淡卡, fg=字次, activebackground=淡卡, selectcolor=淡卡, anchor='w',
+                       font=('Microsoft YaHei UI', 8)).pack(fill='x', pady=(4, 0))
+        行N卡 = tk.Frame(栏二, bg=淡卡)
+        行N卡.pack(fill='x', pady=(6, 0))
+        self.N卡钮 = tk.Button(行N卡, text='装 GPU 引擎', command=self._点装N卡,
+                              bg='#cbdae5', fg=字深, relief='flat',
+                              font=('Microsoft YaHei UI', 字号), pady=3, padx=10)
+        self.N卡钮.pack(side='left')
+        self.N卡进度 = tk.Label(行N卡, text='', bg=淡卡, fg=字次, anchor='w',
+                               font=('Microsoft YaHei UI', 8))
+        self.N卡进度.pack(side='left', padx=(8, 0))
+        self._刷N卡状态()
+        tk.Label(行N卡, text='　要 NVIDIA 显卡；AMD / 核显选了也用不了', bg=淡卡, fg=字次,
+                 font=('Microsoft YaHei UI', 8)).pack(side='left')
+
         self.进度条 = tk.Canvas(卡, height=8, bg='#d5e3ee', highlightthickness=0, bd=0)
         self.进度条.pack(fill='x', pady=(6, 4))
         self.进度件 = self.进度条.create_rectangle(0, 0, 0, 8, fill=蓝, width=0)
@@ -337,6 +391,205 @@ class 设置页:
         self.测音量说 = tk.Label(卡音, text='', bg=淡卡, fg='#3f7a4f', anchor='w', justify='left',
                                wraplength=430, font=('Microsoft YaHei UI', 8))
         self.测音量说.pack(fill='x', pady=(4, 0))
+
+    # ---------- 第二栏：N 卡（GPU 引擎） ----------
+    def _存已装CUDA(self):
+        """「我已经装过 CUDA」这个勾 —— 只影响下多少东西。"""
+        c = dict(paths.读配置() or {})
+        c['我已装CUDA'] = bool(self.已装CUDA.get())
+        try:
+            if paths.写配置(c):
+                self.配置.update(c)
+                说 = ('好：只下 192MB 的引擎（CUDA / cuDNN 你自己装好了）'
+                      if c['我已装CUDA'] else '好：引擎 + cuDNN + cuBLAS 一起下（约 1.4GB）')
+                self.说.set(说)
+        except Exception:
+            pass
+
+    def _存设备(self, 值):
+        c = dict(paths.读配置() or {})
+        c['语音设备'] = 'cuda' if 值 == 'cuda' else 'cpu'
+        try:
+            if paths.写配置(c):
+                self.配置.update(c)
+                self.应用.配置.update(c)
+        except Exception:
+            pass
+
+    def _刷N卡状态(self):
+        """按引擎的**真实**状态刷新第二栏：没装 / 装了没测 / 测过能用 / 测过不能用。"""
+        try:
+            import gpu引擎
+        except Exception as e:
+            try:
+                self.N卡状.configure(text='加载失败：%s' % e)
+            except Exception:
+                pass
+            return
+        缺 = gpu引擎.缺什么()
+        测 = gpu引擎.读自检()
+        可用 = (not 缺) and bool(测 and 测.get('成'))
+        try:
+            self.N卡选.configure(state=('normal' if 可用 else 'disabled'),
+                                 fg=(字深 if 可用 else 字次))
+            self.N卡钮.configure(state=('normal' if 缺 else 'normal'),
+                                 text=('装 GPU 引擎' if 缺 else '重新测一次'))
+        except Exception:
+            pass
+        if 缺:
+            文 = '还没装（缺 %d 个文件）' % len(缺)
+        elif 测 and 测.get('成'):
+            文 = '可以用（已试跑过）'
+        elif 测:
+            文 = '装了，但测不过'
+        else:
+            文 = '装了，还没测'
+        try:
+            self.N卡状.configure(text=文, fg=('#2f8f63' if 可用 else 字次))
+        except Exception:
+            pass
+        # 配置里是 cuda 但现在已经用不了 → 退回 cpu，免得每次开麦都白试一遍
+        if not 可用 and paths.当前设备() == 'cuda':
+            self._存设备('cpu')
+            try:
+                self.设备选.set('cpu')
+            except Exception:
+                pass
+
+    def _选N卡(self):
+        """选了「用显卡跑」——**必须当场验证**，不能等到开麦才发现用不了。"""
+        if str(self.设备选.get()) != 'cuda':
+            self._存设备('cpu')
+            try:
+                self.说.set('改回 CPU 了')
+            except Exception:
+                pass
+            return
+        try:
+            import gpu引擎
+        except Exception as e:
+            self.设备选.set('cpu')
+            self.说.set('GPU 那套加载不了：%s' % e)
+            return
+        缺 = gpu引擎.缺什么()
+        测 = gpu引擎.读自检()
+        if 缺:
+            self.设备选.set('cpu')
+            self.说.set('显卡引擎还没装：先点「装 GPU 引擎」（还缺 %d 个文件）' % len(缺))
+            return
+        if not (测 and 测.get('成')):
+            self.设备选.set('cpu')
+            因 = (测 or {}).get('说') or '还没测过'
+            self.说.set('引擎装了，但自检没过：%s' % str(因)[:60])
+            return
+        self._存设备('cuda')
+        try:
+            self.说.set('好了：以后识别走显卡。模型还是上面三档里选的那份（推荐选「大」那档）')
+        except Exception:
+            pass
+
+    def _点装N卡(self):
+        """下载 GPU 引擎（可不带 cuDNN/cuBLAS）。下完自动自检一次。"""
+        try:
+            import gpu引擎
+        except Exception as e:
+            self.说.set('GPU 那套加载不了：%s' % e)
+            return
+        if getattr(self, '_N卡在跑', False):
+            try:
+                self._N卡下载.停一下()
+            except Exception:
+                pass
+            return
+        self._N卡在跑 = True
+        self._N卡停 = False
+        try:
+            self.N卡钮.configure(state='disabled', text='停')
+        except Exception:
+            pass
+        只下引擎 = bool(self.已装CUDA.get())
+        self._N卡下载 = gpu引擎.下载中()
+        进度 = self._N卡下载
+        self._N卡只下 = 只下引擎
+
+        def 干活():
+            try:
+                成, 说 = gpu引擎.下载(只下引擎=只下引擎, 进度=进度)
+            except Exception as e:
+                成, 说 = False, '下载崩了：%s' % e
+            self._N卡结果 = (成, 说)
+
+        import threading
+        线程 = threading.Thread(target=干活, daemon=True)
+        线程.start()
+        self.应用.根.after(300, lambda: self._刷N卡进度(线程))
+
+    def _刷N卡进度(self, 线程):
+        try:
+            if 线程.is_alive():
+                比, 说 = self._N卡下载.读()
+                self.N卡进度.configure(text='%s（%d%%）' % (说, int(比 * 100)))
+                self.应用.根.after(300, lambda: self._刷N卡进度(线程))
+                return
+        except Exception:
+            pass
+        self._N卡在跑 = False
+        try:
+            self.N卡钮.configure(state='normal', text='装 GPU 引擎')
+        except Exception:
+            pass
+        成, 说 = getattr(self, '_N卡结果', (False, '不知道'))
+        try:
+            self.N卡进度.configure(text='')
+        except Exception:
+            pass
+        if not 成:
+            try:
+                self.说.set('没装成：%s' % 说)
+            except Exception:
+                pass
+            self._刷N卡状态()
+            return
+        try:
+            self.说.set('装好了，正在试跑一次（用显卡建识别器）…')
+        except Exception:
+            pass
+        self._开始自检()
+
+    def _开始自检(self):
+        """拉一个子进程做自检（同一个 exe 带 --gpu-自检），再回来看结论。"""
+        try:
+            import gpu引擎, subprocess, sys as _sys
+        except Exception as e:
+            self.说.set('自检起不来：%s' % e)
+            return
+        try:
+            if os.path.isfile(gpu引擎.自检结果路()):
+                os.remove(gpu引擎.自检结果路())
+        except Exception:
+            pass
+        参 = [gpu引擎.自检结果路()]
+        旗 = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+        try:
+            子 = subprocess.Popen(gpu引擎.子进程命令('--gpu-自检') + 参,
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                  creationflags=旗)
+        except Exception as e:
+            self.说.set('自检起不来：%s' % e)
+            return
+
+        def 看():
+            if 子.poll() is None:
+                self.应用.根.after(500, 看)
+                return
+            测 = gpu引擎.读自检()
+            self._刷N卡状态()
+            if 测 and 测.get('成'):
+                self.说.set('试跑通过：这台机器可以用显卡跑。要用的就把上面那行选上')
+            else:
+                因 = (测 or {}).get('说') or '自检没留下结论（可能缺 CUDA 运行库）'
+                self.说.set('用不了显卡：%s' % str(因)[:120])
+        self.应用.根.after(500, 看)
 
     # ---------- 2 连接 ----------
     def _建连接(self):
@@ -1976,11 +2229,13 @@ class 设置页:
         #   现在只存数字（新值下一次开麦时生效），不动正在跑的电话。
 
     def _测音量(self):
-        """⭐ 1.6.3：听两秒，量一下**安静时**的环境音量，顺手给出建议的收音门限。
+        """⭐ 1.6.3：听两秒，量一下环境音量，给个建议的收音门限。
 
-        为什么要这个按钮：光说「填 5～15」等于没给办法 —— 每个人麦克风增益差很多，
-        让用户自己猜还不如直接量一次。量到的峰值 × 1.6 就是建议值（留一点余量）。
-        ⚠ 麦克风打不开要说清楚（比如被别的程序独占），不许静默失败。
+        ⚠⚠ 1.6.4 修（issue #4）：以前按**整段的最大值**建议 ×1.6，那个数**偏高好几档**：
+          实测每块（64ms）峰值中位数 0.0001、最大 0.077，而「10 秒最大音量」报的是最大值 ——
+          按它建议出来的门限，正常说话都会被挡掉。
+        → 现在按**每块峰值的 90 分位**看，只取它的 40% 当门限（门限是「多小声算没说话」，
+          本来就该落得比说话电平低一截）。
         """
         提示 = getattr(self, '测音量说', None)
 
@@ -1991,7 +2246,7 @@ class 设置页:
             except Exception:
                 pass
 
-        说('正在听两秒…（这会儿先别说话）', 字次)
+        说('正在听两秒…（这会儿先别说话，量的是安静时的底噪）', 字次)
         try:
             self.应用.根.update_idletasks()
         except Exception:
@@ -2007,23 +2262,23 @@ class 设置页:
                 for _ in range(max(1, int(采样 * 2 / 1024))):
                     数据, _溢出 = 流.read(1024)
                     块们.append(np.asarray(数据, dtype='float32').reshape(-1))
-            a = np.concatenate(块们) if 块们 else np.zeros(0, np.float32)
+            if not 块们:
+                raise RuntimeError('一块都没收到')
+            峰们 = np.array([float(np.abs(x).max()) for x in 块们], dtype='float32')
         except Exception as e:
             说('量不了：%s（麦克风被别的程序占着？）' % e, 红)
             return
-        if a.size == 0:
-            说('没听到任何声音 —— 看一眼麦克风是不是选错了', 红)
-            return
-        峰 = float(np.abs(a).max())
-        峰 = min(1.0, max(0.0, 峰))
-        建议 = int(max(1, min(60, round(峰 * 100 * 1.6))))
+        底 = float(np.median(峰们))          # 安静时的底噪（中位数，个别杂音不算）
+        高 = float(np.percentile(峰们, 90))  # 这 2 秒里较响的那一档
+        建议 = int(max(1, min(30, round(高 * 100 * 0.4))))
         try:
             self.收音门限.set(str(建议))
         except Exception:
             pass
         self._存语音()
         self._闪存好(getattr(self, '门已存', None))
-        说('刚才最大音量 %.1f%% —— 安静时量的，就按 %d 填（已经存好了）' % (峰 * 100, 建议))
+        说('底噪 %.2f%%、较响的 %.1f%% —— 建议填 %d（已经存好了）'
+           % (底 * 100, 高 * 100, 建议))
 
     def _闪存好(self, 提示位):
         try:

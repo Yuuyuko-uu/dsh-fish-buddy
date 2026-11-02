@@ -1333,8 +1333,11 @@ class 鱼搭子:
                 if getattr(self, '气泡', None) is not None:
                     径 = int(getattr(self, '球径', 0) or 0) or 132
                     self.气泡.跟随((int(x), int(y), 径, 径))
-            except Exception:
-                pass
+            except Exception as e:
+                try:
+                    记右键('气泡跟随出错：%s' % e)
+                except Exception:
+                    pass
 
     def _鼠标松开(self, e):
         动过 = self._拖过
@@ -3995,6 +3998,28 @@ if __name__ == '__main__':
     开DPI()
     if '--selftest' in sys.argv:
         自测()
+    elif '--gpu-自检' in sys.argv or '--gpu-识别' in sys.argv:
+        # ⭐ 1.6.4：GPU 的两件事都跑在**独立进程**里（CPU 版和 GPU 版各有同名的
+        #   sherpa_onnx / onnxruntime.dll，同一个进程装两套会撞）。
+        #   ⚠ 这两个模式是给主进程用管道读的：Windows 默认按 GBK 输出，
+        #   父进程读出来是乱码 —— 这里先把 stdio 切成 UTF-8。
+        try:
+            sys.stdout.reconfigure(encoding='utf-8')
+            sys.stderr.reconfigure(encoding='utf-8')
+        except Exception:
+            pass
+        try:
+            sys.stdout.reconfigure(line_buffering=True)
+        except Exception:
+            pass
+        import gpu引擎
+        if '--gpu-自检' in sys.argv:
+            位置 = sys.argv.index('--gpu-自检')
+            结果路 = sys.argv[位置 + 1] if len(sys.argv) > 位置 + 1 else ''
+            if 结果路:
+                gpu引擎.自检结果路 = lambda: 结果路
+            sys.exit(gpu引擎.子进程自检())
+        sys.exit(gpu引擎.子进程识别服务())
     else:
         try:
             搭 = 鱼搭子(tk)

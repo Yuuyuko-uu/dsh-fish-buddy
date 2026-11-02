@@ -62,6 +62,9 @@ def 模型目录():
     'session': '',
     'mic_device': None,        # 麦克风设备号；None = 跟着系统默认走
     'mic_device_name': '',     # 同时记名字：换电脑 / 插拔后设备号会变，靠名字找回来
+    # ⭐ 1.6.4：用哪跑识别 —— 'cpu'（默认）或 'cuda'（N 卡）。
+    #   ⚠ 选了 cuda 但引擎没装/自检没过时，**自动退回 cpu**（见 ear.py），不会变成不能用。
+    '语音设备': 'cpu',
     # ⭐ 1.6.3（issue #2）：收音门限。0 = 不挡（默认，跟以前一样）。
     #   为什么要有：模型自带的那个 VAD 判的是「像不像人声」，分不清**功放放出来的歌**；
     #   现在开了功放，音乐会被当成人在说话送去识别。
@@ -378,3 +381,8 @@ def 补内置语音(档=''):
         return True
     except Exception:
         return False
+
+def 当前设备():
+    """用 cpu 还是 cuda。只读配置，**不判断能不能用**（判断在 ear.py，要查引擎）。"""
+    v = str(读配置().get('语音设备') or 'cpu').strip().lower()
+    return v if v in ('cpu', 'cuda') else 'cpu'

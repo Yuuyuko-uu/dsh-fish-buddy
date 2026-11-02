@@ -70,6 +70,9 @@ class 耳朵:
         self._收听中 = True
         self._识别器 = None
         self._vad = None
+        # ⭐ 1.6.4：用显卡跑时，识别交给 GPU 子进程（VAD 还在本地，它很小）
+        self._设备 = 'cpu'
+        self._gpu = None
 
     # ---------- 模型 ----------
     def 记一笔(self, 话):
@@ -96,7 +99,23 @@ class 耳朵:
         self.记一笔('模型目录=' + str(self.模型目录))
 
         self.模型目录 = os.path.abspath(self.模型目录)
-        self._识别器 = 拿识别器(self.模型目录, self.num_threads)
+        # ⭐ 1.6.4：要不要用显卡。**失败一律退回 CPU**，绝不因为 GPU 坏了就不能说话。
+        self._设备 = 'cpu'
+        try:
+            import paths as _p
+            if _p.当前设备() == 'cuda':
+                import gpu引擎
+                if self._gpu is None:
+                    self._gpu = gpu引擎.GPU服务()
+                if self._gpu.准备():
+                    self._设备 = 'cuda'
+                    self.记一笔('识别走显卡（GPU 子进程已连上）')
+                else:
+                    self.记一笔('想用显卡，但没成：%s —— 退回 CPU' % (self._gpu.错 or '原因不明'))
+        except Exception as e:
+            self.记一笔('GPU 那条路出错（退回 CPU）：%s' % e)
+        if self._设备 == 'cpu':
+            self._识别器 = 拿识别器(self.模型目录, self.num_threads)
         c = sherpa_onnx.VadModelConfig()
         c.silero_vad.model = silero路(self.模型目录)
         c.silero_vad.threshold = 0.35
@@ -123,11 +142,24 @@ class 耳朵:
         except Exception:
             pass
         self._门限 = max(0, min(100, 门限)) / 100.0
+        # 门限的两个状态：现在算不算「在说话」、连续安静了几块（保持 8 块 ≈ 0.5 秒）
+        self._门限说话中 = False
+        self._门限静音块 = 0
         self._vad = sherpa_onnx.VoiceActivityDetector(c, buffer_size_in_seconds=30)
         self.记一笔('模型和 VAD 都好了（安静 %.1f 秒算一句）' % 静音秒
                     + (('；收音门限 %.0f%%（低于它的声音直接丢掉）' % (self._门限 * 100)) if self._门限 > 0 else '；收音门限关着'))
 
     def _认(self, samples):
+        # ⭐ 1.6.4：GPU 那条路 —— 把音频丢给子进程；它挂了这一句退回本地，不让整条腿死掉。
+        if self._设备 == 'cuda' and self._gpu is not None:
+            try:
+                return self._gpu.识别(np.asarray(samples, dtype=np.float32))
+            except Exception as e:
+                self.记一笔('GPU 识别失败（这一句改用本地）：%s' % e)
+                try:
+                    self._gpu.关掉()
+                except Exception:
+                    pass
         s = self._识别器.create_stream()
         s.accept_waveform(self.sample_rate, np.asarray(samples, dtype=np.float32))
         self._识别器.decode_stream(s)
@@ -168,22 +200,34 @@ class 耳朵:
                         self._峰值 = max(self._峰值, float(abs(chunk).max()))
                     except Exception:
                         pass
-                    # ⭐ 1.6.3（issue #2）：音量门限 —— 小声的一块直接当没说话，连 VAD 都不喂。
-                    #   ⚠ 但「松手定稿」必须照做，否则说话人松了手，这句就发不出去。
+                    # ⭐ 1.6.3（issue #2）：收音门限（音量）。
+                    # ⚠⚠ 1.6.4 修（issue #4 报的「门限一开就什么都收不到」）：
+                    #   以前是「这一块峰值不够 → continue（直接不喂 VAD）」。
+                    #   实测每块（64ms）峰值比「10 秒最大音量」小一两档：中位数 0.0001、最大 0.077，
+                    #   门限填 1% 就只放过 16% 的块 —— 喂给 VAD 的音频被**剁成碎片**，句子断不出来。
+                    #   现在改成：
+                    #     · 过门限 → 算「在说话」，记下状态；
+                    #     · 低于门限但还在说话（保持 0.5 秒内）→ **照样喂真音频**，不剁句；
+                    #     · 真的安静下来 → **喂零，不是丢块**（时序不能断，VAD 靠它算静音多久）。
                     if getattr(self, '_门限', 0) > 0:
                         try:
                             这块峰 = float(abs(chunk).max())
                         except Exception:
-                            这块峰 = 1.0
-                        if 这块峰 < self._门限:
-                            if getattr(self, '_马上', None) is not None and self._马上.is_set():
-                                self._马上.clear()
+                            这块峰 = 0.0
+                        if 这块峰 >= self._门限:
+                            self._门限说话中 = True
+                            self._门限静音块 = 0
+                        else:
+                            if getattr(self, '_门限说话中', False):
+                                self._门限静音块 = getattr(self, '_门限静音块', 0) + 1
+                                if self._门限静音块 > 8:      # 8 块 ≈ 0.5 秒
+                                    self._门限说话中 = False
+                            if not getattr(self, '_门限说话中', False):
                                 try:
-                                    self._vad.flush()
+                                    import numpy as _np
+                                    chunk = _np.zeros_like(chunk)
                                 except Exception:
-                                    pass
-                                self._排空()
-                            continue
+                                    chunk = chunk * 0
                     if not getattr(self, '_收听中', True):
                         # 没按着说话：声音不进识别（麦克风只是开着，起得快）。
                         # ⚠ 1.2.5：但**松手定稿的请求**必须照样处理 ——

@@ -144,6 +144,25 @@ class 分层窗:
         except Exception:
             pass
 
+    def 挪(self, x, y):
+        """只挪位置，**不重画**。
+
+        ⭐ 1.6.4（issue #3 报的「拖鲸鱼时气泡留在原地」）：
+          以前「跟随」走的是 `贴图()` —— 它每次都要把整张图逐像素重新拼一遍
+          （444×251 就是十几万次 Python 循环），拖动时每秒几十次鼠标事件根本跟不上，
+          表现就是「气泡不跟」。挪位置只需要 SetWindowPos，便宜几百倍。
+        """
+        if not self.hwnd:
+            return
+        try:
+            SWP_NOSIZE = 0x0001
+            SWP_NOZORDER = 0x0004
+            SWP_NOACTIVATE = 0x0010
+            user32.SetWindowPos(self.hwnd, 0, int(x), int(y), 0, 0,
+                                SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE)
+        except Exception:
+            pass
+
     def 关(self):
         try:
             if self.hwnd:
@@ -212,19 +231,6 @@ class 分层窗:
         gdi32.DeleteObject(hbmp)
         gdi32.DeleteDC(屏dc)
         user32.ReleaseDC(None, hdc)
-
-    def 跟随(self, 球框=None):
-        """球在拖动 → 气泡跟着挪，不留在原地。"""
-        if 球框:
-            self.球框 = 球框
-        if self.次图 is None or not self.窗.hwnd:
-            return
-        try:
-            x, y = self._球旁边(self.次图, 翻转=bool(getattr(self, '_翻转', False)))
-            self.次位置 = (x, y)
-            self.窗.贴图(self.次图, x, y)
-        except Exception:
-            pass
 
     def 藏(self):
         if self.hwnd:
@@ -805,6 +811,37 @@ class 气泡:
             return (0, 0, 宽, 高)
         except Exception:
             return (0, 0, 1920, 1080)
+
+    def 跟随(self, 球框=None):
+        """球在拖动 → 气泡跟着挪，不留在原地。
+
+        ⚠⚠ 1.6.4 修（用户报的「拖鲸鱼气泡不动」）：这个方法**以前被写在 `分层窗` 里**
+          （窗口包装那一层），而调用的是 `self.气泡.跟随(...)` —— 那个类里根本没有它，
+          每次调用都抛 AttributeError，外面 `except Exception: pass` 一吞，就「看起来没这功能」。
+          实测日志：`气泡跟随出错：'气泡' object has no attribute '跟随'`，拖一次刷几十行。
+        """
+        if 球框:
+            self.球框 = 球框
+        if self.次图 is None or not self.窗.hwnd:
+            return
+        try:
+            x, y = self._球旁边(self.次图, 翻转=bool(getattr(self, '_翻转', False)))
+            self.次位置 = (x, y)
+            # 只挪位置，不重画（重画要逐像素拼十几万次，拖动时根本跟不上）
+            if not self.窗.挪(x, y):
+                self.窗.贴图(self.次图, x, y)
+        except Exception as e:
+            self.记一笔('跟随出错：%s' % e)
+
+    def 记一笔(self, 话):
+        """写进挂件的右键记录（跟 ball.记右键 同一个文件）。"""
+        try:
+            import paths as _p
+            import time as _t
+            with open(os.path.join(_p.用户目录(), '右键记录.log'), 'a', encoding='utf-8') as f:
+                f.write(_t.strftime('%H:%M:%S') + ' ' + 话 + chr(10))
+        except Exception:
+            pass
 
     def 显示(self, 文本, 秒=6.0, 位置=None, 球径=None, 球框=None, 大小=1.0, 换页秒=4.0):
         文本 = str(文本 or '').strip()

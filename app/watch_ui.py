@@ -981,14 +981,25 @@ class App:
         procs, err = list_audio_processes()
         self.procs = procs
         sound = {pid: act for pid, name, act in procs}
-        checked = {pid for v, pid, name in self.pchecks if v.get()}
+        # ⚠⚠ 1.6.4 修（用户报的「取消勾选又自己勾回来」）：
+        #   以前这里写的是
+        #       for t in load_targets():  rows.append((..., True))     # ← 无条件 True
+        #   于是**只要这个 pid 被记过**，每 8 秒刷新一次就重新勾上；
+        #   而取消勾选并没有人写回去（Checkbutton 没挂 command），文件里那条永远在。
+        #   → 现在：列表第一次建起来时用**存过的那份**当初始勾选；
+        #     之后一律**以界面上现在的勾为准**（谁勾谁取消都说了算），并当场存回去。
+        if getattr(self, '_已建过', False):
+            checked = {pid for v, pid, name in self.pchecks if v.get()}
+        else:
+            checked = {t.get('pid') for t in load_targets() if t.get('pid') is not None}
+            self._已建过 = True
         rows, seen = [], set()
-        for t in load_targets():                       # 勾过的：永远留着（勾着）
+        for t in load_targets():                       # 勾过的：名单里留着（但勾不勾看上面那份）
             pid, name = t.get('pid'), t.get('name', '')
             if pid is None or (pid, name) in seen:
                 continue
             seen.add((pid, name))
-            rows.append((pid, name, bool(sound.get(pid)), True))
+            rows.append((pid, name, bool(sound.get(pid)), pid in checked))
         for pid, name, act in procs:                   # 正在发声的：没勾过也列出来
             if (pid, name) in seen:
                 continue
@@ -1006,11 +1017,36 @@ class App:
         for pid, name, act, on in rows:
             v = tk.BooleanVar(value=on)
             tk.Checkbutton(self.plist, text=('● ' if act else '○ ') + name + '   ' + str(pid),
-                           variable=v, bg=PANEL, fg=FG, selectcolor=PANEL2,
+                           variable=v, command=self._勾变了,
+                           bg=PANEL, fg=FG, selectcolor=PANEL2,
                            activebackground=PANEL, activeforeground=FG,
                            font=('Microsoft YaHei UI', 10), anchor='w', bd=0,
                            highlightthickness=0, padx=2).pack(fill='x', anchor='w')
             self.pchecks.append((v, pid, name))
+
+    def _勾变了(self):
+        """勾 / 取消勾之后立刻存回去。
+
+        ⚠ 1.6.4：以前取消勾选**没有任何人写文件**，而 refresh() 每 8 秒又按文件重画一遍
+          → 看起来就是「自己勾回来」。现在点一下写一次。
+        """
+        try:
+            留 = []
+            for v, pid, name in self.pchecks:
+                if v.get():
+                    留.append({'pid': pid, 'name': name})
+            for t in load_targets():
+                pid, name = t.get('pid'), t.get('name', '')
+                if pid is None:
+                    continue
+                if any(x['pid'] == pid for x in 留):
+                    continue
+                if any(pid == p and name == n for v, p, n in self.pchecks):
+                    continue          # 这一行就在界面上，而且没勾 → 真取消
+                留.append({'pid': pid, 'name': name})
+            save_targets(留)
+        except Exception:
+            pass
 
     def clear(self):
         self.txt.configure(state='normal')
