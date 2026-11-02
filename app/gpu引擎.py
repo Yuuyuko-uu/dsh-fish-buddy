@@ -95,7 +95,9 @@ _轮子 = 'sherpa_onnx-1.13.8+cuda12.cudnn9-cp312-cp312-win_amd64.whl'
     {
         '键': 'cudnn',
         '名': 'cuDNN 9（卷积要用）',
-        '网址': ('https://files.pythonhosted.org/packages/source/n/nvidia-cudnn-cu12/'
+        # ⚠ 别手写 PyPI 的文件路径：那是哈希过的目录（packages/aa/38/…），
+        #   写成 packages/source/... 会 404 —— 2026-11-02 真踩过一次。
+        '网址': ('https://files.pythonhosted.org/packages/aa/38/f856579877f7c1c5066e61182e7de7bc27bf35a78c8d1b0fa592e6985bc4/'
                 'nvidia_cudnn_cu12-9.27.0.42-py3-none-win_amd64.whl'),
         '大小': 709,
         '要': False,
@@ -104,13 +106,15 @@ _轮子 = 'sherpa_onnx-1.13.8+cuda12.cudnn9-cp312-cp312-win_amd64.whl'
 ]
 
 # 判断「装好了」看这几个文件在不在（少了任何一个都跑不起来）
+# ⚠ 全部都在 `sherpa_onnx/lib/` 里（解包时一律塞那儿，Windows 只认「谁加载我」旁边的 DLL）。
+#   2026-11-02 真踩过：以前把后四个写在 `gpu/` 根上 → 就算全下完也一直判「缺文件」。
 必需文件 = [
     os.path.join('sherpa_onnx', '__init__.py'),
     os.path.join('sherpa_onnx', 'lib', 'onnxruntime_providers_cuda.dll'),
-    'cudart64_12.dll',
-    'cublas64_12.dll',
-    'cublasLt64_12.dll',
-    'cudnn64_9.dll',
+    os.path.join('sherpa_onnx', 'lib', 'cudart64_12.dll'),
+    os.path.join('sherpa_onnx', 'lib', 'cublas64_12.dll'),
+    os.path.join('sherpa_onnx', 'lib', 'cublasLt64_12.dll'),
+    os.path.join('sherpa_onnx', 'lib', 'cudnn64_9.dll'),
 ]
 
 
@@ -239,6 +243,20 @@ def _解压缩包(压缩路):
                 shutil.copyfileobj(源, 出)
 
 
+_每项要的文件 = {
+    '引擎': (os.path.join('sherpa_onnx', '__init__.py'),
+             os.path.join('sherpa_onnx', 'lib', 'onnxruntime_providers_cuda.dll')),
+    'cudart': ('cudart64_12.dll',),
+    'cublas': ('cublas64_12.dll', 'cublasLt64_12.dll'),
+    'cudnn': ('cudnn64_9.dll',),
+}
+
+
+def _这项已经好了(键):
+    要 = _每项要的文件.get(键, ())
+    return bool(要) and all(os.path.isfile(os.path.join(库目录(), 相)) for 相 in 要)
+
+
 def 下载(只下引擎=False, 进度=None):
     """把引擎和那几个库下下来、解开。返回 (成, 说)。"""
     进度 = 进度 or 下载中()
@@ -251,9 +269,8 @@ def 下载(只下引擎=False, 进度=None):
         with tempfile.TemporaryDirectory(prefix='鱼搭子gpu-') as 临时:
             for 项 in 项们:
                 进度.记(已走 / 总长, '正在下：' + 项['名'])
-                if 项['键'] == '引擎' and os.path.isfile(os.path.join(包目录(), '__init__.py')) \
-                        and os.path.isfile(os.path.join(库目录(), 'onnxruntime_providers_cuda.dll')):
-                    # 引擎已经在了：跳过（用户重复点下载不该再下一遍）
+                if _这项已经好了(项['键']):
+                    # 已经解好了就跳过：重复点下载、或者上次中途停了，都不该再下一遍
                     已走 += 项['大小']
                     continue
                 临时路 = os.path.join(临时, 项['键'] + '.tmp')
@@ -327,10 +344,70 @@ def _建识别器(模块, 设备, 模型目录):
         模型, 词表, num_threads=2, provider=设备)
 
 
+def _有N卡():
+    """机器上到底有没有 NVIDIA 显卡。
+
+    ⚠ 光看「识别器建起来了」不够：sherpa-onnx 拿不到 CUDA 时**不抛异常**，
+      只在 stderr 打一句 `Fallback to cpu`，然后照常跑 CPU ——
+      2026-11-02 在 AMD 机器上实测，「自检通过」了，其实一直在用 CPU。
+    """
+    try:
+        import subprocess
+        旗 = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+        出 = subprocess.run(['nvidia-smi', '--query-gpu=name', '--format=csv,noheader'],
+                            capture_output=True, timeout=6, creationflags=旗)
+        return 出.returncode == 0 and bool((出.stdout or b'').strip())
+    except Exception:
+        return False
+
+
+def _抓stderr(函数):
+    """跑一段 C++ 的活儿，顺手把它打到 stderr 的话抓下来（sherpa 的「退回 CPU」就在那儿）。"""
+    import tempfile
+    路 = tempfile.mktemp(prefix='鱼搭子gpu-', suffix='.log')
+    fd = os.open(路, os.O_RDWR | os.O_CREAT | os.O_TRUNC)
+    旧 = os.dup(2)
+    结果, 错 = None, ''
+    try:
+        os.dup2(fd, 2)
+        结果 = 函数()
+    finally:
+        try:
+            os.dup2(旧, 2)
+        except Exception:
+            pass
+        try:
+            os.close(旧)
+        except Exception:
+            pass
+        try:
+            os.close(fd)
+        except Exception:
+            pass
+    try:
+        with open(路, encoding='utf-8', errors='replace') as f:
+            错 = f.read()[-1500:]
+    except Exception:
+        pass
+    try:
+        os.remove(路)
+    except Exception:
+        pass
+    return 结果, 错
+
+
 def 子进程自检():
-    """--gpu-自检：真的用 GPU 建一个识别器，把结论写进 json。返回退出码。"""
+    """--gpu-自检：真的用 GPU 建一个识别器、真的跑一次，把结论写进 json。"""
     结论 = {'成': False, '说': '', 'at': int(time.time())}
     try:
+        if not _有N卡():
+            结论['说'] = '这台机器没有 NVIDIA 显卡（或没装显卡驱动）—— 用不了显卡，用上面三档就行'
+            记下自检(结论)
+            try:
+                print(json.dumps(结论, ensure_ascii=False), flush=True)
+            except Exception:
+                pass
+            return 2
         模块, 错 = 加载外部引擎()
         if 模块 is None:
             结论['说'] = 错
@@ -338,20 +415,32 @@ def 子进程自检():
             模型目录 = paths.档目录(paths.可用档() or paths.默认语音档)
             结论['说'] = '引擎加载好了，但模型没装：' + 模型目录
             if os.path.isfile(os.path.join(模型目录, 'model.onnx')):
-                try:
+                def 试跑():
                     识别器 = _建识别器(模块, 'cuda', 模型目录)
                     结 = 识别器.create_stream()
                     结.accept_waveform(16000, [0.0] * 8000)
                     识别器.decode_stream(结)
-                    结论['成'] = True
-                    结论['说'] = 'GPU 能用了（试跑了一小段静音）'
+                    return 识别器
+                try:
+                    _, 错文 = _抓stderr(试跑)
+                    低 = 错文.lower()
+                    if 'fallback to cpu' in 低 or 'fallback to cpu!' in 低:
+                        原因 = '显卡这条路没接上，引擎退回 CPU 了'
+                        for 行 in 错文.splitlines():
+                            if 'fallback' in 行.lower() or 'cuda' in 行.lower():
+                                原因 = 行.strip()[:240]
+                                break
+                        结论['说'] = 原因 + '（多半是缺 CUDA 运行时或 cuDNN 版本不对）'
+                    else:
+                        结论['成'] = True
+                        结论['说'] = '显卡能用（建了识别器、跑了一小段静音，没有退回 CPU）'
                 except Exception as e:
                     结论['说'] = 'GPU 建不起来：%s' % str(e)[:300]
     except Exception as e:
         结论['说'] = '自检自己崩了：%s' % str(e)[:300]
     记下自检(结论)
     try:
-        print(json.dumps(结论, ensure_ascii=False))
+        print(json.dumps(结论, ensure_ascii=False), flush=True)
     except Exception:
         pass
     return 0 if 结论['成'] else 2
