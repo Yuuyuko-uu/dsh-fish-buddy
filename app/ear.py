@@ -27,6 +27,26 @@ def 拿识别器(模型目录, num_threads=4):
     import sherpa_onnx
     import paths
     目录 = 键[0]
+    # ⭐ 1.6.9：先按大小核对一遍 —— 文件不全是"下到一半断了"，报出来会是一句看不懂的 C++ 错
+    #   （用户实测：`invalid unordered_map<K, T> key`，正是模型/tokens 不完整时的样子）。
+    #   ⚠ 档引擎() 返回的是"哪种引擎"（sense / paraformer），不是档名，别拿它查下限。
+    档名 = ''
+    try:
+        for 名 in paths.语音档们:
+            if os.path.abspath(paths.档目录(名)) == os.path.abspath(目录):
+                档名 = 名
+                break
+    except Exception:
+        档名 = ''
+    最小 = paths.语音最小字节.get(档名) if 档名 else min(paths.语音最小字节.values())
+    for 名 in paths.语音文件:
+        路 = os.path.join(目录, 名)
+        if not os.path.exists(路):
+            raise RuntimeError('这一档的模型少了 %s —— 在设置里点「重新装这一档」' % 名)
+        下限 = 最小 if 名.endswith('.onnx') else 1024
+        if os.path.getsize(路) < 下限:
+            raise RuntimeError('这一档的模型没下完整（%s 只有 %.0fMB，至少要 %.0fMB）—— 在设置里点「重新装这一档」'
+                               % (名, os.path.getsize(路) / 1048576.0, 下限 / 1048576.0))
     模型 = os.path.join(目录, 'model.onnx')
     词表 = os.path.join(目录, 'tokens.txt')
     # ⭐ 1.5.9：目录名叫 paraformer 的那一档要用 from_paraformer 建（它不出标点）
@@ -52,6 +72,31 @@ def 预热(模型目录, num_threads=4):
         return False
 
 
+def 选开率(sd, 设备, 想要=16000):
+    """挑一个这块设备真能用的采样率，返回 (开率, 比值)。
+
+    ⚠ 1.6.9：用户实测「麦克风打不开：Error opening InputStream: Invalid sample rate
+      [PaErrorCode -9997]」—— 蓝牙耳机只支持 44100/48000，按 16000 开会直接失败。
+      比值 = 开率 / 想要的；回调里按比值重采样回 16k。
+    """
+    候选 = [int(想要)]
+    try:
+        信息 = sd.query_devices(设备)
+        默认 = float(信息.get('default_samplerate') or 0)
+        if 默认 and int(round(默认)) not in 候选:
+            候选.append(int(round(默认)))
+    except Exception:
+        pass
+    for 率 in 候选:
+        try:
+            sd.check_input_settings(device=设备, channels=1, dtype='float32', samplerate=率)
+            return int(率), float(率) / float(想要)
+        except Exception:
+            continue
+    # 都查不过就仍按默认率试（开的时候还可能成）
+    return int(候选[-1]), float(候选[-1]) / float(想要)
+
+
 class 耳朵:
     def __init__(self, 依赖目录, 模型目录, on_text, on_state=None,
                  sample_rate=16000, device=None, num_threads=4):
@@ -73,6 +118,10 @@ class 耳朵:
         # ⭐ 1.6.4：用显卡跑时，识别交给 GPU 子进程（VAD 还在本地，它很小）
         self._设备 = 'cpu'
         self._gpu = None
+        # ⭐ 1.6.9：设备实际用的采样率可能不是 16000（蓝牙耳机只给 44100/48000），
+        #   进来之后重采样到 16k 再喂 VAD/识别。
+        self._设备率 = sample_rate
+        self._重采样比 = 1.0
 
     # ---------- 模型 ----------
     def 记一笔(self, 话):
@@ -178,8 +227,15 @@ class 耳朵:
             self._峰值 = 0.0
             self._块数 = 0
             self._上次报 = 0.0
-            with sd.InputStream(samplerate=self.sample_rate, channels=1, dtype='float32',
-                                device=self.device, callback=self._cb, blocksize=1024):
+            # ⭐ 1.6.9：**采样率兜底**。蓝牙耳机、不少 USB 麦只支持 44100/48000，
+            #   直接按 16000 开会报 `Invalid sample rate [PaErrorCode -9997]`（用户实测）。
+            #   现在：先试 16k；不行就问这块设备的默认率，按它开，回调里重采样回 16k。
+            #   ⚠ 光用 check_input_settings 查不出来（它和真正开麦走的不是同一条路），
+            #     所以真开的时候再兜一层：开不起来就换设备默认率重开一次。
+            开率, self._重采样比 = 选开率(sd, self.device, self.sample_rate)
+            流 = self._开流(sd, 开率)
+            self._设备率 = 开率
+            with 流:
                 self.记一笔('麦克风开着（进来 0 块之前不会有别的）')
                 while not self._stop.is_set():
                     try:
@@ -259,6 +315,29 @@ class 耳朵:
             self.记一笔('这条腿结束了（进来 %d 块）' % getattr(self, '_块数', 0))
             self.on_state('idle')
 
+    def _开流(self, sd, 开率):
+        """按 开率 开一条输入流；失败就换这块设备的默认率再试一次（重采样由 _cb 负责）。"""
+        块 = int(1024 * 开率 / self.sample_rate) or 1024
+        try:
+            return sd.InputStream(samplerate=开率, channels=1, dtype='float32',
+                                  device=self.device, callback=self._cb, blocksize=块)
+        except Exception as e:
+            错 = str(e)
+            self.记一笔('按 %s Hz 开麦失败（%s），试着换设备默认率' % (开率, 错[:120]))
+            try:
+                默认 = int(round(float(sd.query_devices(self.device).get('default_samplerate') or 0)))
+            except Exception:
+                默认 = 0
+            if not 默认 or 默认 == 开率:
+                raise
+            self._重采样比 = float(默认) / float(self.sample_rate)
+            self._设备率 = 默认
+            self.记一笔('改用设备默认率 %d Hz（会重采样回 %d）' % (默认, self.sample_rate))
+            块2 = int(1024 * 默认 / self.sample_rate) or 1024
+            return sd.InputStream(samplerate=默认, channels=1, dtype='float32',
+                                  device=self.device, callback=self._cb, blocksize=块2)
+
+
     def _排空(self):
         """把 VAD 里已经定下来的段全认出来。"""
         while not self._vad.empty():
@@ -300,7 +379,16 @@ class 耳朵:
             pass
 
     def _cb(self, indata, frames, t, status):
-        self._q.put(indata[:, 0].copy())
+        块 = indata[:, 0].copy()
+        比 = self._重采样比
+        if 比 and abs(比 - 1.0) > 1e-6 and len(块) > 1:
+            # 线性插值重采样到 16k —— 语音够用，别为此引入 scipy
+            import numpy as np
+            长 = max(1, int(round(len(块) / 比)))
+            旧位 = np.arange(len(块), dtype=np.float32)
+            新位 = np.linspace(0, len(块) - 1, 长, dtype=np.float32)
+            块 = np.interp(新位, 旧位, 块).astype(np.float32)
+        self._q.put(块)
 
     def 开(self):
         threading.Thread(target=self.跑, daemon=True).start()

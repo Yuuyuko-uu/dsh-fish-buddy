@@ -220,16 +220,39 @@ class 下载器:
                 return
             paths.补内置语音(self.档)
             ok = paths.档就绪(self.档)
+            # ⭐ 1.6.9：把这次下到的**真实大小**记下来，下次启动能精确核对（下限只能防大截断）
+            try:
+                标 = os.path.join(self._目录, '.sizes.json')
+                import json as _json
+                记 = {}
+                for _, 本地 in self._文件们:
+                    路 = os.path.join(self._目录, 本地)
+                    if os.path.exists(路):
+                        记[本地] = os.path.getsize(路)
+                if 记:
+                    with open(标, 'w', encoding='utf-8') as f:
+                        _json.dump(记, f, ensure_ascii=False, indent=1)
+            except Exception:
+                pass
             self._改(进行中=False, 完成=ok, 总字节=总,
                      说='好了，可以说话了' if ok else '下完了但文件不齐，点「再试一次」')
         except Exception as e:
             self._改(进行中=False, 出错=str(e), 说='没下成：' + str(e))
 
     def _已完整(self, 本地):
+        """这一份算不算下完了。
+
+        ⚠ 1.6.9：以前是「.onnx 大于 1MB 就算完整」。下载中断留下的 50MB 残file 会被当成完整，
+          程序照常加载 → 解码时报 `invalid unordered_map<K, T> key`（用户实测，看不懂）。
+          现在按**这一档的起码大小**判（见 paths.语音最小字节）。
+        """
         路 = os.path.join(self._目录, 本地)
         if not os.path.exists(路):
             return False
-        return os.path.getsize(路) > 1024 * 1024 if 本地.endswith('.onnx') else os.path.getsize(路) > 1024
+        大小 = os.path.getsize(路)
+        if not 本地.endswith('.onnx'):
+            return 大小 > 1024
+        return 大小 >= paths.语音最小字节.get(self.档, 1024 * 1024)
 
     def _下一个(self, 远端, 本地, 序):
         目标 = os.path.join(self._目录, 本地)

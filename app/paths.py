@@ -236,6 +236,15 @@ paraformer模型名 = 'sherpa-onnx-paraformer-zh-small-2024-03-09'
 语音档顺序 = ('int8', 'fp32', 'paraformer')
 默认语音档 = 'int8'
 语音文件 = ('model.onnx', 'tokens.txt')          # 每档目录里都叫这两个名字
+
+# ⭐ 1.6.9：每档的模型**起码得有多大**（字节）。
+#   以前只判「大于 1MB 就算下完了」—— 一个下载到 50MB 就断掉的 239MB 模型会被当成完整，
+#   然后程序照常加载，解码时报 `invalid unordered_map<K, T> key` 这种看不懂的 C++ 错（用户实测）。
+语音最小字节 = {
+    'int8': 200 * 1024 * 1024,       # 实际约 239MB
+    'fp32': 800 * 1024 * 1024,       # 实际约 937MB
+    'paraformer': 70 * 1024 * 1024,  # 实际约 81MB
+}
 内置文件 = ('silero_vad.onnx',)                   # 这个很小，打在程序里
 
 
@@ -282,7 +291,8 @@ def 档就绪(档):
         路 = os.path.join(目录, 名)
         if not os.path.exists(路):
             return False
-        if os.path.getsize(路) < 1024:
+        下限 = 语音最小字节.get(档, 1024) if 名.endswith('.onnx') else 1024
+        if os.path.getsize(路) < 下限:
             return False
     if os.path.exists(os.path.join(目录, 'silero_vad.onnx')):
         return True
