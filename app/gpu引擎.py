@@ -181,17 +181,52 @@ class 下载中:
             return self.比, self.说
 
 
-def _下文件(网址, 到, 进度, 名, 起, 长):
-    """下一个文件到 `到`（支持断点续传：有 .part 就接着下）。"""
+def _记(话):
+    """下载也留证据 —— 出问题时要能看出「哪条路、什么错」。
+
+    ⚠ 1.6.6：这一块以前**一句日志都没有**，用户报「跳一下就没了」我什么都看不到。
+      直接复用 models 那套（同一个 下载记录.log，跟模型下载的记录在一起）。
+    """
+    try:
+        import models
+        models.记下载('[GPU] ' + str(话))
+    except Exception:
+        pass
+
+
+def _候选地址(网址):
+    """官方 → hf-mirror 兜底。非 huggingface 的地址就那一个。"""
+    出 = [网址]
+    if '://huggingface.co/' in 网址:
+        出.append(网址.replace('://huggingface.co/', '://hf-mirror.com/', 1))
+    return 出
+
+
+def _打开(地址, 头, 超时=60):
+    """按「系统代理 → 直连」试 —— 跟 models.py 里那套完全一样。
+
+    ⚠ 1.6.6：以前这里直接用 urllib.request.urlopen 裸连。
+      后果：**挂了系统代理的人也用不上**（urllib 只认环境变量），而引擎那个 192MB 恰好在 huggingface 上，
+      直连是不通的 —— 用户看到的就是「进度跳一下就没了」。三个模型没事，因为它们走的是 models 那套。
+    """
+    try:
+        import models
+        return models._打开(地址, 头, 超时, 说=lambda 文: _记('  ' + 文))
+    except Exception:
+        return urllib.request.urlopen(urllib.request.Request(地址, headers=头), timeout=超时)
+
+
+def _下一条(地址, 到, 进度, 名, 起, 长):
+    """从**一个**地址下（支持续传：有 .part 就接着下）。"""
     片 = 到 + '.part'
     已有 = os.path.getsize(片) if os.path.exists(片) else 0
     头 = {'user-agent': 'dsh-fish-buddy'}
     if 已有:
         头['range'] = 'bytes=%d-' % 已有
-    请求 = urllib.request.Request(网址, headers=头)
-    with urllib.request.urlopen(请求, timeout=60) as 响:
+    响 = _打开(地址, 头)
+    try:
         总 = int(响.headers.get('content-length') or 0)
-        if 响.status == 206:
+        if 已有 and getattr(响, 'status', 0) == 206:
             总 = 已有 + 总
         elif 已有:
             已有 = 0                      # 服务器不理 range，就从头来
@@ -208,7 +243,55 @@ def _下文件(网址, 到, 进度, 名, 起, 长):
                 下 += len(块)
                 if 总 > 0:
                     进度.记(min(0.99, 起 + (长 * (下 / 总))), '%s %d%%' % (名, int(下 * 100 / 总)))
+    finally:
+        try:
+            响.close()
+        except Exception:
+            pass
+    if 已有 == 0 and os.path.getsize(片) < 1024:
+        raise RuntimeError('下到的是空文件')
     os.replace(片, 到)
+
+
+def _用curl下(地址, 到, 进度, 名, 起, 长):
+    """python 这条路全不通时，交给系统的 curl.exe（跟 models.py 里同一个兜底思路）。"""
+    import subprocess
+    curl = os.path.join(os.environ.get('SystemRoot') or 'C:/Windows', 'System32', 'curl.exe')
+    if not os.path.isfile(curl):
+        raise RuntimeError('没有 curl.exe')
+    片 = 到 + '.part'
+    进度.记(min(0.99, 起), '%s（改用 curl 下）' % 名)
+    旗 = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+    子 = subprocess.run([curl, '-L', '--retry', '2', '--connect-timeout', '30',
+                         '-o', 片, 地址], capture_output=True, creationflags=旗)
+    if 子.returncode != 0 or not os.path.isfile(片) or os.path.getsize(片) < 1024:
+        raise RuntimeError('curl 也没成：%s' % (子.stderr or b'')[:120])
+    os.replace(片, 到)
+
+
+def _下文件(网址, 到, 进度, 名, 起, 长):
+    """下一条：官方 → 镜像 → （都不行）curl。每一步都记日志。"""
+    错 = None
+    候选 = _候选地址(网址)
+    for 第几, 址 in enumerate(候选, 1):
+        try:
+            # 界面这一行也要说 —— 卡在「连不上」时不能看着像死了
+            进度.记(进度.读()[0], '正在试%s：%s' % (
+                '' if len(候选) == 1 else '（%d/%d）' % (第几, len(候选)),
+                址.split('/')[2]))
+            _记('试：' + 址.rsplit('/', 1)[-1][:60])
+            _下一条(址, 到, 进度, 名, 起, 长)
+            _记('成了：' + 址.rsplit('/', 1)[-1][:60])
+            return
+        except Exception as e:
+            错 = e
+            _记('失败：%s → %s' % (址.rsplit('/', 1)[-1][:50], str(e)[:150]))
+    try:
+        _用curl下(_候选地址(网址)[-1], 到, 进度, 名, 起, 长)
+        _记('curl 成了')
+    except Exception as e:
+        _记('curl 也失败：%s' % str(e)[:150])
+        raise 错 or e
 
 
 def _解轮子(轮子路, 想去哪):

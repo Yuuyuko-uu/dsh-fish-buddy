@@ -272,10 +272,17 @@ class 设置页:
                        font=('Microsoft YaHei UI', 8)).pack(fill='x', pady=(4, 0))
         行N卡 = tk.Frame(栏二, bg=淡卡)
         行N卡.pack(fill='x', pady=(6, 0))
+        # ⚠ 1.6.6：**「装文件」和「能不能用显卡」是两件事**，以前合成一个按钮 ——
+        #   结果文件装过之后按钮变成「重新测一次」，AMD 的人就再也点不到下载了（她本人在 AMD 上就是这么卡住的）。
+        #   现在两个独立按钮：装（随时能点）、测（装好才有意义）。
         self.N卡钮 = tk.Button(行N卡, text='装 GPU 引擎', command=self._点装N卡,
                               bg='#cbdae5', fg=字深, relief='flat',
                               font=('Microsoft YaHei UI', 字号), pady=3, padx=10)
         self.N卡钮.pack(side='left')
+        self.N卡测钮 = tk.Button(行N卡, text='重新测一次', command=self._开始自检,
+                                bg='#e7eef4', fg=字深, relief='flat',
+                                font=('Microsoft YaHei UI', 8), pady=3, padx=8)
+        self.N卡测钮.pack(side='left', padx=(6, 0))
         self.N卡进度 = tk.Label(行N卡, text='', bg=淡卡, fg=字次, anchor='w',
                                font=('Microsoft YaHei UI', 8))
         self.N卡进度.pack(side='left', padx=(8, 0))
@@ -432,8 +439,10 @@ class 设置页:
         try:
             self.N卡选.configure(state=('normal' if 可用 else 'disabled'),
                                  fg=(字深 if 可用 else 字次))
-            self.N卡钮.configure(state=('normal' if 缺 else 'normal'),
-                                 text=('装 GPU 引擎' if 缺 else '重新测一次'))
+            # 「装」按钮：**永远能点**（AMD 的人也要能测下载）；正在下载时由 _点装N卡 改成「停」
+            self.N卡钮.configure(state='normal', text='装 GPU 引擎')
+            # 「测」按钮：文件没装齐就没意义
+            self.N卡测钮.configure(state=('normal' if not 缺 else 'disabled'))
         except Exception:
             pass
         if 缺:
@@ -544,8 +553,15 @@ class 设置页:
         except Exception:
             pass
         if not 成:
+            # ⚠ 1.6.6：失败原因**必须留在这一行上**。
+            #   以前只写进 `self.说`（那是会不停被顶掉的状态行）→ 用户看到的就是「进度跳一下就没了」，
+            #   什么原因都没留下。现在两个地方都写，并且指向日志。
             try:
-                self.说.set('没装成：%s' % 说)
+                self.N卡进度.configure(text='没装成：%s' % str(说)[:120], fg=红)
+            except Exception:
+                pass
+            try:
+                self.说.set('没装成：%s（详细原因看「右键 → 打开日志文件夹 → 下载记录.log」）' % str(说)[:80])
             except Exception:
                 pass
             self._刷N卡状态()
