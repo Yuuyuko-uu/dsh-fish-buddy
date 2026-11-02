@@ -15,6 +15,7 @@
     2. cudart（3MB）、cublas（524MB）、cudnn（709MB）—— 它跑起来还缺的库
     「我已经装过 CUDA 了」的人只需要第 1 样。
 """
+import importlib
 import json
 import os
 import shutil
@@ -103,6 +104,18 @@ _轮子 = 'sherpa_onnx-1.13.8+cuda12.cudnn9-cp312-cp312-win_amd64.whl'
         '要': False,
         '解开': '轮子',
     },
+    {
+        '键': 'cufft',
+        # ⚠ 1.6.7：这一样**以前漏了**，真机上 C++ 直接说
+        #   `onnxruntime_providers_cuda.dll ... depends on "cufft64_11.dll" which is missing`
+        #   —— 下完前面四样也照样退回 CPU。cuFFT 是 ORT 的 CUDA 后端硬依赖。
+        '名': 'cuFFT 11（显卡算傅里叶要用）',
+        '网址': ('https://developer.download.nvidia.com/compute/cuda/redist/libcufft/'
+                'windows-x86_64/libcufft-windows-x86_64-11.4.0.6-archive.zip'),
+        '大小': 189,
+        '要': False,
+        '解开': 'zip',
+    },
 ]
 
 # 判断「装好了」看这几个文件在不在（少了任何一个都跑不起来）
@@ -115,6 +128,7 @@ _轮子 = 'sherpa_onnx-1.13.8+cuda12.cudnn9-cp312-cp312-win_amd64.whl'
     os.path.join('sherpa_onnx', 'lib', 'cublas64_12.dll'),
     os.path.join('sherpa_onnx', 'lib', 'cublasLt64_12.dll'),
     os.path.join('sherpa_onnx', 'lib', 'cudnn64_9.dll'),
+    os.path.join('sherpa_onnx', 'lib', 'cufft64_11.dll'),
 ]
 
 
@@ -332,6 +346,7 @@ _每项要的文件 = {
     'cudart': ('cudart64_12.dll',),
     'cublas': ('cublas64_12.dll', 'cublasLt64_12.dll'),
     'cudnn': ('cudnn64_9.dll',),
+    'cufft': ('cufft64_11.dll',),
 }
 
 
@@ -402,19 +417,54 @@ def _加DLL路径():
         pass
 
 
-def 加载外部引擎():
-    """从引擎目录 import 第二份 sherpa_onnx（绕过冻结包里那份）。返回 (模块, 错)。"""
+def _装外部找法(目录, 包名='sherpa_onnx'):
+    """让 `import sherpa_onnx` / `sherpa_onnx.xxx` 统统落到外部目录。
+
+    ⚠⚠ 1.6.7（真机报的）：**这是之前那个「加载成功」的假象来源**。
+      `gpu/sherpa_onnx/__init__.py` 第一行是 `from sherpa_onnx.lib._sherpa_onnx import ...`
+      —— **绝对导入**。以前我把外部包按 `sherpa_onnx_gpu` 加载，那句绝对导入照常走 sys.path，
+      于是找到的是 **exe 里打包的 CPU 版** pyd，C++ 那边就报
+      `Please compile with -DSHERPA_ONNX_ENABLE_GPU=ON`。
+      用户看到的「下载完了但用不了显卡」就是这个：引擎下下来了，程序和它根本没接上。
+    """
     import importlib.util
-    入口 = os.path.join(包目录(), '__init__.py')
-    if not os.path.isfile(入口):
-        return None, '引擎没装好（找不到 %s）' % 入口
+
+    class 找法:
+        def find_spec(self, 名, 路=None, 目标=None):
+            if 名 != 包名 and not 名.startswith(包名 + '.'):
+                return None
+            相 = 名.split('.')
+            基 = os.path.join(目录, *相)
+            if os.path.isdir(基):
+                入 = os.path.join(基, '__init__.py')
+                if os.path.isfile(入):
+                    return importlib.util.spec_from_file_location(名, 入, submodule_search_locations=[基])
+                return None
+            for 尾 in ('.pyd', '.py', '.so'):
+                全 = 基 + 尾
+                if os.path.isfile(全):
+                    return importlib.util.spec_from_file_location(名, 全)
+            return None
+
+    找 = 找法()
+    sys.meta_path.insert(0, 找)
+    return 找
+
+
+def 加载外部引擎():
+    """从引擎目录 import 第二份 sherpa_onnx（**名字就叫 sherpa_onnx**，整体顶掉 exe 里那份）。"""
+    if not os.path.isfile(os.path.join(包目录(), '__init__.py')):
+        return None, '引擎没装好（找不到 %s）' % os.path.join(包目录(), '__init__.py')
     _加DLL路径()
     try:
-        spec = importlib.util.spec_from_file_location(
-            'sherpa_onnx_gpu', 入口, submodule_search_locations=[包目录()])
-        模块 = importlib.util.module_from_spec(spec)
-        sys.modules['sherpa_onnx_gpu'] = 模块
-        spec.loader.exec_module(模块)
+        # 先把 exe 里那份（以及它的子模块）赶出 sys.modules，否则 import 会直接命中旧的
+        for 名 in [m for m in list(sys.modules) if m == 'sherpa_onnx' or m.startswith('sherpa_onnx.')]:
+            sys.modules.pop(名, None)
+        _装外部找法(引擎目录())
+        模块 = importlib.import_module('sherpa_onnx')
+        真在 = os.path.abspath(getattr(模块, '__file__', '') or '')
+        if not 真在.startswith(os.path.abspath(包目录())):
+            return None, '加载回来的还是 exe 里那份（%s），不是引擎目录里的' % 真在
         return 模块, ''
     except Exception as e:
         return None, '%s: %s' % (type(e).__name__, e)

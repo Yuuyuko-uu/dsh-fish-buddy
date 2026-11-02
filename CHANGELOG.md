@@ -1,3 +1,23 @@
+## 程序 1.6.7 — 2026-11-02
+
+**下完引擎也用不了显卡：加载的是 exe 里那份 CPU 版 + 少下了一样 cuFFT**
+
+- 🐞 **加载错了**（这条最要命）：`gpu/sherpa_onnx/__init__.py` 第一行是
+  `from sherpa_onnx.lib._sherpa_onnx import ...` —— **绝对导入**。
+  以前我把外部包按另一个名字加载，这句绝对导入照样走正常路径，
+  结果拿到的是 **exe 里打包的 CPU 版**，C++ 就报 `Please compile with -DSHERPA_ONNX_ENABLE_GPU=ON`。
+  表现：引擎下下来了、自检也说「下完了」，但一点「用显卡跑」就报这句 —— **下载的东西等于没用上**。
+  ✅ 现在把 `sherpa_onnx` 这整个名字都指到引擎目录（自定义 import 查找器 + 先清掉旧模块），
+  加载完还核一遍 `__file__` 确实在引擎目录里，不在就明确报错。
+- 🐞 **少下了一样 cuFFT**：C++ 原话是
+  `onnxruntime_providers_cuda.dll ... depends on "cufft64_11.dll" which is missing`。
+  ORT 的 CUDA 后端硬依赖它，缺了就照样退回 CPU。现在下载清单里加上 **cuFFT 11.4（189MB）**。
+- ✅ 自检的报错也更实在了：会把 C++ 那句原文摆出来（含缺哪个 DLL、或「CUDA 驱动版本不够」），
+  不再只说一句「用不了显卡」。
+- 本机实测（AMD，没有 N 卡）：加载确实指向引擎目录那份；补完 DLL 之后，报错从
+  「找不到 cufft64_11.dll」变成「CUDA driver version is insufficient」——
+  也就是**依赖齐了，只剩「这台没有 N 卡」这一条**。
+
 ## 程序 1.6.6 — 2026-11-02
 
 **N 卡引擎装不下来：我新写的下载器是"裸连"的**
