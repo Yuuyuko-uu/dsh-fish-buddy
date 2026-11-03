@@ -213,6 +213,72 @@ def _hwnd(窗):
     return u.GetParent(ctypes.c_void_p(窗.winfo_id()))
 
 
+# ⭐ 2026-11-03：**守置顶**
+#   用户报的问题：悬浮窗有时候会跑到别的窗口下面去，不是置顶。
+#   原因：Windows 的「置顶」不是永久属性，只是 z 序里的一个「层」——
+#     · 别的置顶窗（播放器小窗、别的工具的置顶条）一激活，就排到我们上面；
+#     · 全屏程序切出来、显示器休眠唤醒、自己 withdraw/deiconify 走一遍，标记会丢；
+#     · 普通 Toplevel（设置窗 / 功能窗）**没有外层包装窗**，GetParent 返回 0，
+#       拿 0 去 SetWindowPos 就是空操作 —— 所以有的窗口守得住、有的守不住。
+#   做法：每 1.2 秒看一眼，**已经掉了才抬手**；不抢焦点、不动位置。
+_WS_EX_TOPMOST = 0x00000008
+_GW_HWNDPREV = 3
+_SWP_不动 = 0x0001 | 0x0002 | 0x0010     # NOSIZE | NOMOVE | NOACTIVATE
+
+
+def _真窗号(窗):
+    """真正那个顶层窗口的句柄（有包装窗就用包装窗，没有就用它自己）"""
+    try:
+        h = int(窗.winfo_id())
+    except Exception:
+        return 0
+    try:
+        u = ctypes.windll.user32
+        u.GetParent.argtypes = [ctypes.c_void_p]
+        u.GetParent.restype = ctypes.c_void_p
+        p = u.GetParent(ctypes.c_void_p(h))
+    except Exception:
+        p = 0
+    return int(p) if p else h
+
+
+def 还在最上层(窗):
+    """置顶标记还挂着吗？
+
+    ⚠ 2026-11-03 实测：**不要去比 z 序上挨着的那个窗口**。
+       Windows 自己有一堆置顶的小窗（输入法候选框 MSCTFIME UI、
+       任务栏缩略图预览 ThumbnailDeviceHelperWnd），它们永远压在所有人头上，
+       拿它来判断「我掉下去了」会一直误报。所以只看 WS_EX_TOPMOST 这一位。
+    """
+    try:
+        u = ctypes.windll.user32
+        u.GetWindowLongPtrW.argtypes = [ctypes.c_void_p, ctypes.c_int]
+        u.GetWindowLongPtrW.restype = ctypes.c_ssize_t
+        h = _真窗号(窗)
+        if not h:
+            return True
+        ex = int(u.GetWindowLongPtrW(ctypes.c_void_p(h), -20) or 0)
+        return bool(ex & _WS_EX_TOPMOST)
+    except Exception:
+        return True
+
+
+def 钉到最上层(窗):
+    """重新压回最上层。不抢焦点、不动位置大小。"""
+    try:
+        u = ctypes.windll.user32
+        u.SetWindowPos.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int,
+                                   ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_uint]
+        u.SetWindowPos.restype = ctypes.c_bool
+        h = _真窗号(窗)
+        if not h:
+            return False
+        return bool(u.SetWindowPos(ctypes.c_void_p(h), ctypes.c_void_p(-1),
+                                   0, 0, 0, 0, _SWP_不动))
+    except Exception:
+        return False
+
+
 def 定圆窗(窗, 尺寸):
     try:
         窗.update_idletasks()
@@ -1044,6 +1110,7 @@ class 鱼搭子:
             self.托盘 = None
         self.根.after(120, self._刷屏)
         self.根.after(500, self._看缩放)     # 远程调了屏幕缩放 → 自己跟着变
+        self.根.after(1200, self._守置顶)    # ⭐ 1.7.2：悬浮窗掉到别的窗口下面 → 抬回来
         self.根.after(1200, self._清旧攒图)  # ⭐ 1.4.10：启动时把上一次的攒图清掉
         self.根.after(900, self._热键轮询)   # ⭐ 1.0.2：全局截图热键
         # ⭐ 1.2.2：起来 15 秒后自动记 90 秒「按下的键码」—— 查某个键到底报多少用
@@ -1264,6 +1331,48 @@ class 鱼搭子:
         except Exception:
             pass
 
+    def _守置顶(self):
+        """每 1.2 秒看一眼：悬浮窗 / 功能窗还是不是压在最上面。
+
+        为什么非要有这个循环：Windows 的置顶只管「层」，不管「层里的先后」。
+        别的置顶窗一激活就排到我们头上；全屏程序切走、显示器唤醒、
+        或者我们自己 withdraw→deiconify，标记还会整个丢掉。
+        tkinter 的 `-topmost` 只在设置那一刻生效一次，之后没人管。
+
+        **只在真的掉了的时候才抬手**（还在上面就什么都不做），
+        否则每隔一秒去压一次别人的窗口，反而会让人觉得「这软件在抢屏」。
+        """
+        try:
+            窗们 = []
+            try:
+                窗们.append(self.根)
+            except Exception:
+                pass
+            try:
+                if self.面板 is not None:
+                    窗们.append(self.面板)
+            except Exception:
+                pass
+            for 窗 in 窗们:
+                try:
+                    if 窗.winfo_exists() == 0 or 窗.state() == 'withdrawn':
+                        continue
+                except Exception:
+                    continue
+                if 还在最上层(窗):
+                    continue
+                钉到最上层(窗)
+                try:
+                    窗.attributes('-topmost', True)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        try:
+            self.根.after(1200, self._守置顶)
+        except Exception:
+            pass
+
     def _建Tk浮窗(self, x, y):
         from PIL import Image
         if self.分层图:
@@ -1276,6 +1385,8 @@ class 鱼搭子:
         self.根.attributes('-topmost', True)
         self.根.geometry('%dx%d+%d+%d' % (self.球径, self.球径, x, y))
         self.根.update_idletasks()
+        # ⭐ 1.7.2：重建浮窗时把置顶实钉一次（fit 完 geometry 之后 tkinter 的置顶常常没落地）
+        钉到最上层(self.根)
         try:
             self.分层图 = Tk分层图(self.根, self.原图, self.球径)
             self.球画 = self.根
@@ -1480,6 +1591,9 @@ class 鱼搭子:
         self.根.deiconify()
         self.根.lift()
         self.根.attributes('-topmost', True)
+        # ⭐ 1.7.2：deiconify 之后 tkinter 的置顶常常没生效（这时也最容易掉），
+        #   再拿 SetWindowPos 实钉一次
+        钉到最上层(self.根)
         if self.分层图:
             self.根.after_idle(lambda: self.分层图.更新(*self._浮窗位置))
 
