@@ -1142,10 +1142,12 @@ class 设置页:
         搭行.pack(fill='x', pady=(6, 0))
         tk.Label(搭行, text='她主动看一眼：每', bg=淡卡, fg=字次,
                  font=('Microsoft YaHei UI', 字号)).pack(side='left')
-        self.搭分钟 = tk.StringVar(value=str(int((float(self.配置.get('游戏搭话秒') or 180)) // 60)))
-        tk.Entry(搭行, textvariable=self.搭分钟, width=4, bg='#ffffff', fg=字深,
+        # ⭐ 1.7.1：「每 N 分钟」改成「每 N 秒」——
+        #   用分钟填不出 30 秒这种值（以前 int(分钟) 一截就变 0 = 不说），而且插件那边也是按秒算的。
+        self.搭秒 = tk.StringVar(value=str(int(float(self.配置.get('游戏搭话秒') or 180))))
+        tk.Entry(搭行, textvariable=self.搭秒, width=6, bg='#ffffff', fg=字深,
                  font=('Microsoft YaHei UI', 字号)).pack(side='left', padx=(2, 2))
-        tk.Label(搭行, text='分钟一次（0 = 不说）', bg=淡卡, fg=字次,
+        tk.Label(搭行, text='秒一次（0 = 不说，最少 10 秒）', bg=淡卡, fg=字次,
                  font=('Microsoft YaHei UI', 字号)).pack(side='left')
         tk.Button(搭行, text='保存', command=self._存游戏搭话, bg='#cbdae5', fg=字深,
                   font=('Microsoft YaHei UI', 字号), relief='flat').pack(side='left', padx=(8, 0))
@@ -1308,16 +1310,26 @@ class 设置页:
 
     def _存游戏搭话(self):
         try:
-            分 = max(0, min(240, int(float(self.搭分钟.get() or 0))))
+            秒 = int(float(self.搭秒.get() or 0))
         except Exception:
-            self.说.set('分钟数要写数字（0 = 不说）')
+            self.说.set('这里要填数字（秒；0 = 不说）')
             return
+        秒 = max(0, min(14400, 秒))
+        if 0 < 秒 < 10:
+            秒 = 10          # 太短没意义，还会一直叫醒她
         c = dict(paths.读配置() or {})
-        c['游戏搭话秒'] = 分 * 60
+        c['游戏搭话秒'] = 秒
         if paths.写配置(c):
             self.应用.配置.update(c)
             self.配置.update(c)
-            self.说.set('游戏模式：' + ('不说' if 分 <= 0 else ('每 %d 分钟主动看一眼' % 分)))
+            self.说.set('游戏模式：' + ('不说' if 秒 <= 0 else ('每 %d 秒主动看一眼' % 秒)))
+            # ⭐ 1.7.1：**正在游戏模式里就当场告诉插件新值** ——
+            #   以前这个值只在「进/出游戏模式」时发，而且压根没发过，改了等于没改。
+            try:
+                if getattr(self.应用, '游戏模式', False):
+                    self.应用._报游戏模式(True)
+            except Exception:
+                pass
 
     def _存截图送法(self):
         v = '攒着' if str(self.送法.get()) == '攒着' else '每张'

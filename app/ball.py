@@ -1928,7 +1928,12 @@ class 鱼搭子:
         try:
             import frames
             端口 = int(配置.get('dsh_port') or 8777)
-            体 = json.dumps({'游戏': bool(开)}, ensure_ascii=False).encode('utf-8')
+            # ⭐ 1.7.1：**把「游戏搭话秒」一起发过去**。
+            #   以前只发开关，插件读的是它自己配置里那份（默认 180）——
+            #   用户在设置页改成 60，插件那边永远是 180，等于没改（用户实测报的）。
+            体 = json.dumps({'游戏': bool(开),
+                            '搭话秒': int(配置.get('游戏搭话秒') or 0)},
+                           ensure_ascii=False).encode('utf-8')
             req = urllib.request.Request('http://127.0.0.1:%d/hands/mode' % 端口, data=体,
                                          headers={'Content-Type': 'application/json'})
             with frames.本机直连.open(req, timeout=3) as r:
