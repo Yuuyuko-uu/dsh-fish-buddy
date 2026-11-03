@@ -155,6 +155,27 @@ class 设置页:
         except Exception:
             pass
 
+    def 本页要多宽(self):
+        """当前这页内容**真正需要**多宽（用来把窗口撑开）。
+
+        ⚠ 为什么不能直接量内层 Frame：它被 `itemconfigure(width=画宽)` 强制成窗口宽了，
+          `winfo_reqwidth` 不再反映内容。所以量它**每个子卡**的 reqwidth 取最大。
+        """
+        try:
+            内 = (self.页们.get(self.当前) or (None, None))[1]
+            if 内 is None:
+                return 0
+            最 = 0
+            for 子 in 内.winfo_children():
+                try:
+                    最 = max(最, int(子.winfo_reqwidth()))
+                except Exception:
+                    pass
+            return 最 + 48          # 卡片左右的留白
+        except Exception:
+            return 0
+
+
     def _新页(self, 名):
         """一页 = 一个能上下滚的容器（内容比窗口高也能看全）。
 
@@ -1063,36 +1084,49 @@ class 设置页:
 
         # ⭐ 1.3.4：锁定弹幕框位置（全屏打游戏时鼠标到处划，框会被拖走）
         卡锁 = self._卡(框)
-        self.框锁勾 = tk.BooleanVar(value=bool(self.配置.get('框锁定', True)))
-        # ⭐ 1.3.8：两个组合键都能自己设（默认 Alt+G 退出游戏模式 / Alt+H 锁解锁）
+        self.框锁勾 = tk.BooleanVar(value=bool(self.配置.get('框锁定', False)))
+        # ⭐ 1.6.10：游戏模式这三个键**改成「录一个键」**，不再让人手打。
+        #   手打那种写法（`Alt+G`）一是容易写错、二是写错了当场看不出来，
+        #   而这三个键是游戏模式里**唯一的出路**（框锁着 = 鼠标穿透，点不到它），
+        #   所以跟「按住说话」那边统一成录制方式：点按钮 → 按你想要的键 → 记下。
+        #   支持单击（F9）、也支持按住 Ctrl / Alt / Shift 再按一个键（Ctrl+Alt+G）。
         键行 = tk.Frame(卡锁, bg=淡卡)
         键行.pack(fill='x', pady=(4, 0))
-        tk.Label(键行, text='退出游戏模式：', bg=淡卡, fg=字次,
+        tk.Label(键行, text='退出游戏模式', bg=淡卡, fg=字次,
                  font=('Microsoft YaHei UI', 字号)).pack(side='left')
-        self.退键 = tk.StringVar(value=str(self.配置.get('游戏退出键') or 'Alt+G'))
-        tk.Entry(键行, textvariable=self.退键, width=10, bg='#ffffff', fg=字深,
-                 font=('Microsoft YaHei UI', 字号)).pack(side='left', padx=(0, 14))
-        tk.Label(键行, text='锁/解锁弹幕框：', bg=淡卡, fg=字次,
+        tk.Button(键行, text='录一个键', command=lambda: self._录组合键('游戏退出键', '退键名', '退出游戏模式'),
+                  bg='#cbdae5', fg=字深, relief='flat',
+                  font=('Microsoft YaHei UI', 8), pady=2, padx=8).pack(side='left', padx=(6, 4))
+        self.退键名 = tk.Label(键行, text=self._组合键名('游戏退出键'), bg=淡卡, fg=字深,
+                             font=('Microsoft YaHei UI', 字号))
+        self.退键名.pack(side='left', padx=(0, 16))
+
+        tk.Label(键行, text='锁/解锁弹幕框', bg=淡卡, fg=字次,
                  font=('Microsoft YaHei UI', 字号)).pack(side='left')
-        self.锁键 = tk.StringVar(value=str(self.配置.get('游戏锁键') or 'Alt+H'))
-        tk.Entry(键行, textvariable=self.锁键, width=10, bg='#ffffff', fg=字深,
-                 font=('Microsoft YaHei UI', 字号)).pack(side='left')
+        tk.Button(键行, text='录一个键', command=lambda: self._录组合键('游戏锁键', '锁键名', '锁/解锁弹幕框'),
+                  bg='#cbdae5', fg=字深, relief='flat',
+                  font=('Microsoft YaHei UI', 8), pady=2, padx=8).pack(side='left', padx=(6, 4))
+        self.锁键名 = tk.Label(键行, text=self._组合键名('游戏锁键'), bg=淡卡, fg=字深,
+                             font=('Microsoft YaHei UI', 字号))
+        self.锁键名.pack(side='left')
+
         键行2 = tk.Frame(卡锁, bg=淡卡)
         键行2.pack(fill='x', pady=(4, 0))
-        tk.Label(键行2, text='清空待发截图：', bg=淡卡, fg=字次,
+        tk.Label(键行2, text='清空待发截图', bg=淡卡, fg=字次,
                  font=('Microsoft YaHei UI', 字号)).pack(side='left')
-        self.清键 = tk.StringVar(value=str(self.配置.get('游戏清键') or 'Alt+J'))
-        tk.Entry(键行2, textvariable=self.清键, width=10, bg='#ffffff', fg=字深,
-                 font=('Microsoft YaHei UI', 字号)).pack(side='left', padx=(2, 12))
+        tk.Button(键行2, text='录一个键', command=lambda: self._录组合键('游戏清键', '清键名', '清空待发截图'),
+                  bg='#cbdae5', fg=字深, relief='flat',
+                  font=('Microsoft YaHei UI', 8), pady=2, padx=8).pack(side='left', padx=(6, 4))
+        self.清键名 = tk.Label(键行2, text=self._组合键名('游戏清键'), bg=淡卡, fg=字深,
+                             font=('Microsoft YaHei UI', 字号))
+        self.清键名.pack(side='left', padx=(0, 12))
         self.去重勾 = tk.BooleanVar(value=bool(self.配置.get('截图去重', True)))
-        tk.Checkbutton(键行2, text='跟上一张几乎一样的就不发（挂机省）', variable=self.去重勾,
+        tk.Checkbutton(键行2, text='几乎一样的图不发', variable=self.去重勾,
                        command=self._存去重, bg=淡卡, fg=字深, activebackground=淡卡,
                        selectcolor=淡卡, font=('Microsoft YaHei UI', 字号)).pack(side='left')
-        tk.Button(键行, text='保存组合键', command=self._存组合键, bg='#cbdae5', fg=字深,
-                  font=('Microsoft YaHei UI', 字号), relief='flat').pack(side='left', padx=(10, 0))
-        tk.Label(卡锁, text='写法：Ctrl+Alt+G、Alt+H、F9 …（只在游戏模式里生效）',
-                 bg=淡卡, fg=字次, anchor='w', justify='left',
-                 font=('Microsoft YaHei UI', 8)).pack(fill='x', pady=(2, 0))
+        tk.Label(卡锁, text='键盘、鼠标侧键都行；可以单击，也可以按住 Ctrl / Alt / Shift 配一个。只在游戏模式里生效。',
+                 bg=淡卡, fg=字次, anchor='w', justify='left', wraplength=460,
+                 font=('Microsoft YaHei UI', 8)).pack(fill='x', pady=(4, 0))
         # ⭐ 1.3.9：截图怎么送 —— 两档
         送行 = tk.Frame(卡锁, bg=淡卡)
         送行.pack(fill='x', pady=(6, 0))
@@ -1295,28 +1329,15 @@ class 设置页:
             self.说.set('截图：' + ('攒着，说话时一起看' if v == '攒着' else '每张都说一遍'))
 
     def _存组合键(self):
-        退 = str(self.退键.get() or '').strip() or 'Alt+G'
-        锁 = str(self.锁键.get() or '').strip() or 'Alt+H'
-        # 存之前先确认解析得出来（写错了当场说，别等进了游戏才发现按不动）
-        def 行不(文):
-            try:
-                return bool(self.应用._解析组合键(文)[1])
-            except Exception:
-                return False
-        if not 行不(退) or not 行不(锁):
-            self.说.set('组合键写法不对：要像 «Ctrl+Alt+G» «Alt+H» «F9» 这样')
-            return
-        c = dict(paths.读配置() or {})
-        c['游戏退出键'] = 退
-        c['游戏锁键'] = 锁
-        c['游戏清键'] = str(self.清键.get() or '').strip() or 'Alt+J'
-        if not 行不(c['游戏清键']):
-            self.说.set('清空待发那个组合键写法不对')
-            return
-        if paths.写配置(c):
-            self.应用.配置.update(c)
-            self.配置.update(c)
-            self.说.set('组合键：%s 退出游戏模式，%s 锁/解锁' % (退, 锁))
+        """⚠ 1.6.10：这三个键改成「录一个键」了（见 _录组合键），本方法只留给旧调用兜底。
+
+        它以前是读三个输入框再存的；输入框已经删了，所以这里改成**什么都不做**，
+        免得别处误调时去访问不存在的 self.退键 直接崩。
+        """
+        try:
+            self.说.set('这几个键改成点「录一个键」直接按了')
+        except Exception:
+            pass
 
     def _存框锁(self):
         c = dict(paths.读配置() or {})
@@ -1639,6 +1660,132 @@ class 设置页:
     # 鼠标那几个键的编号（Windows 的 VK 值，GetAsyncKeyState 直接认）
     鼠标键们 = ((0x01, '鼠标左键'), (0x02, '鼠标右键'), (0x04, '鼠标中键'),
               (0x05, '鼠标侧键1'), (0x06, '鼠标侧键2'))
+
+    # ---------- 游戏模式那三个组合键：录，不手打 ----------
+    def _组合键名(self, 键项):
+        """这个键现在是什么（给人看的样子）。"""
+        文 = str(self.配置.get(键项) or "").strip()
+        return 文 or "（没设）"
+
+    def _录组合键(self, 键项, 标签名, 说法):
+        """录一个游戏模式用的键：单击、组合键、鼠标侧键都行。
+
+        ⚠ 跟「按住说话」那个 _录键 不一样：那个存**键码**（给 GetAsyncKeyState 轮询），
+          这里存**文字**（`Alt+G` / `F9` / `Ctrl+鼠标侧键1`），由 ball._解析组合键 解析。
+        """
+        窗 = tk.Toplevel(self.父)
+        窗.title(说法)
+        窗.configure(bg=淡底)
+        窗.geometry("360x120")
+        窗.attributes("-topmost", True)
+        提示 = tk.Label(窗, text="按一下要用的键（键盘或鼠标侧键）", bg=淡底, fg=字深,
+                      justify="center", font=("Microsoft YaHei UI", 13))
+        提示.pack(expand=True)
+        已收 = {"成": False, "轮": None}
+
+        def 收(文):
+            if 已收["成"]:
+                return
+            try:
+                饰, 码 = self.应用._解析组合键(文)
+            except Exception:
+                饰, 码 = None, 0
+            if not 码:
+                提示.configure(text="这个键不行，换一个")
+                return
+            已收["成"] = True
+            try:
+                if 已收["轮"]:
+                    self.父.after_cancel(已收["轮"])
+            except Exception:
+                pass
+            c = dict(paths.读配置() or {})
+            c[键项] = 文
+            if paths.写配置(c):
+                self.应用.配置.update(c)
+                self.配置.update(c)
+                try:
+                    标 = getattr(self, 标签名, None)
+                    if 标 is not None:
+                        标.configure(text=self._组合键名(键项))
+                except Exception:
+                    pass
+                self.说.set("%s：%s" % (说法, 文))
+            else:
+                # ⚠ 写失败必须说出来（以前这三项静默失败，用户以为存上了，重启就回退）
+                self.说.set("没存上 —— 配置写不进去：" + paths.配置路径())
+            try:
+                窗.destroy()
+            except Exception:
+                pass
+
+        def 现在的修饰():
+            """鼠标事件里拿不到修饰键状态，直接问系统。"""
+            import ctypes as _ct
+            饰们 = []
+            for 码, 文 in ((0x11, "Ctrl"), (0x12, "Alt"), (0x10, "Shift")):
+                try:
+                    if _ct.windll.user32.GetAsyncKeyState(码) & 0x8000:
+                        饰们.append(文)
+                except Exception:
+                    pass
+            return 饰们
+
+        def 按键(e):
+            名 = str(e.keysym or "")
+            if 名 == "Escape":
+                try:
+                    窗.destroy()
+                except Exception:
+                    pass
+                return
+            if 名 in ("Control_L", "Control_R", "Alt_L", "Alt_R", "Shift_L", "Shift_R"):
+                提示.configure(text="再按一下（现在只按住了修饰键）")
+                return
+            if len(名) == 1 and (名.isalpha() or 名.isdigit()):
+                主 = 名.upper()
+            elif 名.upper().startswith("F") and 名[1:].isdigit() and 1 <= int(名[1:]) <= 12:
+                主 = 名.upper()
+            else:
+                提示.configure(text="这个键不行，换一个（字母 / 数字 / F1~F12）")
+                return
+            饰们 = []
+            st = int(getattr(e, "state", 0) or 0)
+            if st & 0x0004:
+                饰们.append("Ctrl")
+            if st & 0x0001:
+                饰们.append("Shift")
+            if st & 0x20000:
+                饰们.append("Alt")
+            收("+".join(饰们 + [主]))
+
+        # Tk 收不到鼠标键，只能轮询（跟「按住说话」那边一个办法）
+        def 看鼠标():
+            if 已收["成"]:
+                return
+            try:
+                if not 窗.winfo_exists():
+                    return
+            except Exception:
+                return
+            import ctypes as _ct
+            if _ct.windll.user32.GetAsyncKeyState(0x1B) & 0x8000:
+                try:
+                    窗.destroy()
+                except Exception:
+                    pass
+                return
+            for 码, 名 in self.鼠标键们:
+                if 码 in (0x01, 0x02):
+                    continue      # 左右键留给正常的点按，不当热键录
+                if _ct.windll.user32.GetAsyncKeyState(码) & 0x8000:
+                    收("+".join(现在的修饰() + [名]))
+                    return
+            已收["轮"] = self.父.after(30, 看鼠标)
+
+        窗.bind("<KeyPress>", 按键)
+        窗.focus_force()
+        已收["轮"] = self.父.after(30, 看鼠标)
 
     def _录键(self, 键项='按住说键', 名项='按住说名', 标签名='键说1', 说法='以后按住「%s」就能说话'):
         """录一个键：键盘走 Tk 的按键事件，**鼠标走轮询**（Tk 根本收不到鼠标键）。

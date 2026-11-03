@@ -1428,11 +1428,13 @@ class 鱼搭子:
                       command=守(self._切换悬浮窗))
         # ⭐ 1.5.9：日志在哪、怎么发给我们 —— 点一下就能打开，不用认 %LOCALAPPDATA%
         m.add_command(label='打开日志文件夹', command=守(self._打开日志文件夹))
-        if self.当前页:
+        if self.当前页 or getattr(self, '游戏模式', False):
+            # ⭐ 1.6.10：游戏模式里也要有这一条（以前它只看「当前页」，进游戏模式时当前页是空的，
+            #   于是托盘里根本没有关闭 —— 加上热键被游戏挡住，人就出不来了）
             m.add_command(label='关闭当前功能', command=守(self._关闭功能))
         # ⭐ 1.3.6：锁住之后弹幕框是**真穿透**（点不到），所以解锁入口放在这儿
         if getattr(self, '游戏模式', False):
-            锁着 = bool(self.配置.get('框锁定', True))
+            锁着 = bool(self.配置.get('框锁定', False))
             m.add_command(label=('解锁弹幕框（可以拖了）' if 锁着 else '锁定弹幕框（拖不动）'),
                           command=守(self._切框锁定))
         m.add_separator()
@@ -1579,7 +1581,7 @@ class 鱼搭子:
             self.面板.minsize(min(乘(320, 240), 宽), min(乘(360, 280), 高))
         elif 页面 == '设置':
             # 分页之后一页不长，560×660 足够；再挤也能滚，不会看不全
-            宽, 高 = 乘(560, 420), 乘(660, 420)
+            宽, 高 = 乘(640, 420), 乘(660, 420)
             宽 = min(宽, max(380, sw - 24))
             高 = min(高, max(440, sh - 40))
             self.面板.minsize(min(乘(380, 340), 宽), min(乘(440, 380), 高))
@@ -1615,6 +1617,51 @@ class 鱼搭子:
         self._调面板尺寸(页面)
         self.面板.deiconify()
         self.面板.lift()
+        # ⭐ 1.6.10：**按内容把窗口撑开**。
+        #   以前窗口宽度是写死的（560），一行里几个控件加起来超过它就被挡在外面，
+        #   只有把窗口拉大才看得到字。现在切到哪页就量一下那页要多宽，不够就撑开（不超过屏幕）。
+        try:
+            self.根.after(30, self._按内容撑宽)
+        except Exception:
+            pass
+
+    def _按内容撑宽(self):
+        """当前这页要是不止这个宽，就把面板撑开（只加宽，不缩）。
+
+        以前设置页里有好几行**默认宽度装不下**（标签 + 输入框 + 按钮加起来超出），
+        字被挡在窗口外面，得手动把窗口拉大才看得见。
+        """
+        try:
+            if not self.面板 or not self.面板.winfo_exists():
+                return
+            self.面板.update_idletasks()
+            需要 = int(self.外框.winfo_reqwidth()) + 24
+            # 设置页是「强制成窗口宽」的滚动区，量外框量不出来 —— 直接问它要多少
+            if self.当前页 == '设置' and getattr(self, '设置件', None):
+                try:
+                    要 = int(self.设置件.本页要多宽() or 0)
+                    if 要:
+                        需要 = max(需要, 要 + 160)      # 左边那栏导航 + 边距
+                except Exception:
+                    pass
+            现在 = int(self.面板.winfo_width())
+            屏宽 = int(self.根.winfo_screenwidth())
+            目标 = min(max(需要, 现在), max(420, 屏宽 - 40))
+            if 目标 <= 现在 + 8:
+                return
+            高 = int(self.面板.winfo_height())
+            x, y = int(self.面板.winfo_x()), int(self.面板.winfo_y())
+            # 撑宽之后别跑出屏幕右边
+            if x + 目标 > 屏宽 - 8:
+                x = max(8, 屏宽 - 目标 - 8)
+            self.面板.geometry("%dx%d+%d+%d" % (目标, 高, x, y))
+            try:
+                记右键("设置页按内容撑宽：%d → %d" % (现在, 目标))
+            except Exception:
+                pass
+        except Exception:
+            pass
+
 
     def _停止当前功能(self):
         if self.当前页 == '电话':
@@ -1836,6 +1883,16 @@ class 鱼搭子:
     def _关闭功能(self):
         # ⭐ 0.0.5：关掉面板 = 收起来，功能（麦克风 / 陪看）继续跑；
         #   要真停，用面板顶上那一行开关，或者右键托盘退出。
+        # ⭐ 1.6.10：正在游戏模式里就**退出游戏模式**（托盘那条「关闭当前功能」得能救人）
+        if getattr(self, '游戏模式', False):
+            try:
+                self._退出游戏()
+            except Exception as e:
+                try:
+                    记右键('托盘关闭：退出游戏模式失败：%s' % e)
+                except Exception:
+                    pass
+            return
         self.当前页 = None
         if self.面板:
             self.面板.withdraw()
@@ -2217,7 +2274,7 @@ class 鱼搭子:
     def _解析组合键(文):
         """'Alt+G' → ({'ctrl': False, 'alt': True, 'shift': False}, 0x47)
 
-        支持：Ctrl / Alt / Shift 任意组合 + 单个字母、数字、F1~F12。
+        支持：Ctrl / Alt / Shift 任意组合 + 单个字母、数字、F1~F12、鼠标键（侧键/中键/左右键）。
         解析不出来就返回 (None, 0)，调用方按「没设」处理。
         """
         parts = [x.strip().lower() for x in str(文 or '').split('+') if x.strip()]
@@ -2225,6 +2282,17 @@ class 鱼搭子:
             return None, 0
         键文 = parts[-1]
         饰 = {m: (m in parts[:-1]) for m in ('ctrl', 'alt', 'shift')}
+        # ⭐ 1.6.10：鼠标键也能当游戏模式的键（侧键/中键/左右键）——
+        #   轮询本来就是 GetAsyncKeyState(码)，所以只要能表达出码就行。
+        鼠标 = {
+            '鼠标左键': 0x01, '左键': 0x01, 'mouse1': 0x01,
+            '鼠标右键': 0x02, '右键': 0x02, 'mouse2': 0x02,
+            '鼠标中键': 0x04, '中键': 0x04, 'mouse3': 0x04,
+            '鼠标侧键1': 0x05, '侧键1': 0x05, 'mouse4': 0x05,
+            '鼠标侧键2': 0x06, '侧键2': 0x06, 'mouse5': 0x06,
+        }
+        if 键文 in 鼠标:
+            return 饰, 鼠标[键文]
         if len(键文) == 1 and (键文.isalpha() or 键文.isdigit()):
             码 = ord(键文.upper())
         elif 键文.startswith('f') and 键文[1:].isdigit():
@@ -2616,8 +2684,8 @@ class 鱼搭子:
                 宽=int(int(配置.get('弹幕框宽') or 380) * 比例),
                 字号=max(10, int(round(int(配置.get('框字号') or 20) * 比例))),
                 菜单=self._弹幕框菜单, 双击=self._双击回球, 设置=self._开设置,
-                # ⭐ 1.3.4：锁定位置（默认锁着 —— 全屏打游戏时鼠标到处划，框会被拖走）
-                锁定=bool(配置.get('框锁定', True)), 锁切换=self._切框锁定)
+                # ⭐ 1.6.10：默认**不锁**（以前默认锁着，用户进去连框都拖不动，还点不到它）
+                锁定=bool(配置.get('框锁定', False)), 锁切换=self._切框锁定)
             self.弹幕框.字体路 = _字体路(配置.get('框字体') or 配置.get('弹幕字体'))
             # ⭐ 1.1.5：记下这次是用哪套参数建的，之后「存设置」就不会白重建一遍
             self._框签名 = (配置.get('框字号'), 配置.get('框字体'), 配置.get('弹幕框宽'),
