@@ -255,7 +255,7 @@ await 开路由([JSON.stringify({})], 开回.res)
     await 推({ text: '再看一眼这张' })
     const 段 = 取白板()
     查('帧：排进了字幕里（白板里有一行「截了一张图」）', 段.includes('截了一张图'), 段.slice(-200))
-    查('帧：那一行带本地文件路径，并说明「想看到就打开这个文件」', 段.includes('就打开这个文件：') && 段.includes('.jpg'), 段.slice(-200))
+    查('帧：那一行带本地文件路径，并说明「用 read_image 打开看一眼」', 段.includes('用 read_image 打开看一眼：') && 段.includes('.jpg'), 段.slice(-200))
     查('帧：跟字幕在同一段里（不是另起一轮）', 段.includes('再看一眼这张') && 段.includes('截了一张图'), 段.slice(-200))
   }
 
