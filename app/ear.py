@@ -155,7 +155,7 @@ class 耳朵:
             if _p.当前设备() == 'cuda':
                 import gpu引擎
                 if self._gpu is None:
-                    self._gpu = gpu引擎.GPU服务()
+                    self._gpu = gpu引擎.共享服务()
                 if self._gpu.准备():
                     self._设备 = 'cuda'
                     self.记一笔('识别走显卡（GPU 子进程已连上）')

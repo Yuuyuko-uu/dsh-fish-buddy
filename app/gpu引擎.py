@@ -676,15 +676,18 @@ class GPU服务:
         self.连 = None
         self.锁 = threading.Lock()
         self.错 = ''
+        self.模型目录 = ''
 
-    def _拉起来(self):
+    def _拉起来(self, 模型目录=''):
         self.关掉()
         参数 = 子进程命令('--gpu-识别')
         环境 = dict(os.environ)
         # ⚠ 测试钩子：这台机器没有 N 卡，验证「子进程 + 通信」这条路时用 cpu 跑一遍。
         #   正常使用永远是 cuda。
         环境['鱼搭子_设备'] = os.environ.get('鱼搭子_测设备') or 'cuda'
-        环境['鱼搭子_模型目录'] = paths.档目录(paths.可用档() or paths.当前语音档())
+        目录 = 模型目录 or paths.档目录(paths.可用档() or paths.当前语音档())
+        环境['鱼搭子_模型目录'] = 目录
+        self.模型目录 = 目录
         # ⚠ Windows 上子进程的 stdout 默认是**控制台代码页（GBK）**，
         #   父进程按 UTF-8 读会变成乱码、JSON 解析失败。强制两边都是 UTF-8。
         环境['PYTHONIOENCODING'] = 'utf-8'
@@ -713,15 +716,20 @@ class GPU服务:
         连 = socket.create_connection(('127.0.0.1', 端口), timeout=30)
         self.连 = 连
 
-    def 准备(self):
+    def 准备(self, 模型目录=''):
         with self.锁:
             if self.连 is not None:
+                # ⭐ 1.6.10：已经连上就是这一份模型。别人要**另一档**时不能糊弄过去 ——
+                #   否则陪看选了小模型、实际跑的是电话那份大的，两边对不上。
+                if 模型目录 and self.模型目录 and os.path.abspath(模型目录) != os.path.abspath(self.模型目录):
+                    self.错 = 'GPU 子进程已经在跑另一档模型'
+                    return False
                 return True
             if not 就绪() and not os.environ.get('鱼搭子_跳过就绪检查'):
                 self.错 = '引擎没装齐：' + '、'.join(缺什么())
                 return False
             try:
-                self._拉起来()
+                self._拉起来(模型目录)
                 self.错 = ''
                 return True
             except Exception as e:
@@ -756,3 +764,22 @@ class GPU服务:
         except Exception:
             pass
         self.进程 = None
+
+
+# ---------------------------------------------------------------------------
+# 全进程共用一份
+# ---------------------------------------------------------------------------
+_共享 = None
+_共享锁 = threading.Lock()
+
+def 共享服务():
+    """电话和陪看共用**同一个** GPU 子进程。
+
+    ⭐ 1.6.10：以前两边各 `GPU服务()` 各拉一个 —— 两个 CUDA 引擎 + 两份模型，
+       显存直接翻倍，8G 的卡会直接爆。这里只建一次。
+    """
+    global _共享
+    with _共享锁:
+        if _共享 is None:
+            _共享 = GPU服务()
+        return _共享

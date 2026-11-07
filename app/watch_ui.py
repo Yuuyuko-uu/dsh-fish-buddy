@@ -285,13 +285,42 @@ class SenseEngine:
 
     ⭐ 1.5.9：三档都能用 —— 小（228MB，省 CPU）/ 大（894MB，最准）/ 最快（78MB，不出标点）。
     目录名决定用哪个识别器：paraformer 那个目录走 from_paraformer，其余走 from_sense_voice。
+
+    ⭐ 1.6.10：**跟着「语音设备」走**。以前这里写死 CPU（paraformer 那档直接
+    `provider='cpu'`，SenseVoice 那档连 provider 都没传），所以设置里勾了「用显卡跑」
+    也只有打电话那条腿生效 —— 陪看永远吃 CPU，跟不上就丢积压（用户报的
+    「积压丢弃 106 块音频」就是这么来的）。
+    现在：cuda 时走**共享的 GPU 子进程**（跟电话同一个，不重复占显存）；
+    连不上、或者跑到一半断了，一律退回本地 CPU，绝不让陪看停下来。
     """
 
     def __init__(self, lang='auto', 档=''):
-        import sherpa_onnx
         import paths
         档 = 档 if 档 in paths.语音档们 else paths.可用档()
-        目录 = paths.档目录(档)
+        self._档 = 档
+        self._lang = lang
+        self._本地 = None
+        self._gpu = None
+        self.名 = 'CPU'
+        try:
+            if 档 and paths.当前设备() == 'cuda':
+                import gpu引擎
+                服 = gpu引擎.共享服务()
+                if 服.准备(paths.档目录(档)):
+                    self._gpu = 服
+                    self.名 = 'GPU'
+        except Exception:
+            self._gpu = None
+        if self._gpu is None:
+            # 不用显卡时跟以前一样：当场就把本地引擎建好（模型没装就当场报错）
+            self._建本地()
+
+    def _建本地(self):
+        if self._本地 is not None:
+            return self._本地
+        import sherpa_onnx
+        import paths
+        目录 = paths.档目录(self._档)
         模型 = os.path.join(目录, 'model.onnx')
         词表 = os.path.join(目录, 'tokens.txt')
         if not (os.path.exists(模型) and os.path.exists(词表)):
@@ -301,20 +330,34 @@ class SenseEngine:
         #   外面的播放器就被挤到卡顿（「加载中 0kb/s」）。
         #   2 线程时 7 秒音频约 0.8 秒 —— 认的间隔 1.6 秒，仍然来得及。
         if paths.档引擎(目录) == 'paraformer':
-            self.rec = sherpa_onnx.OfflineRecognizer.from_paraformer(
+            self._本地 = sherpa_onnx.OfflineRecognizer.from_paraformer(
                 paraformer=模型, tokens=词表, num_threads=2, sample_rate=16000,
                 feature_dim=80, decoding_method='greedy_search', provider='cpu', debug=False)
-            self.名 = 'Paraformer'
+            名字 = 'Paraformer'
         else:
-            self.rec = sherpa_onnx.OfflineRecognizer.from_sense_voice(
+            self._本地 = sherpa_onnx.OfflineRecognizer.from_sense_voice(
                 模型, 词表, num_threads=2, use_itn=True,
-                language=('auto' if not lang or lang == 'auto' else lang))
-            self.名 = 'SenseVoice'
+                language=('auto' if not self._lang or self._lang == 'auto' else self._lang))
+            名字 = 'SenseVoice'
+        # ⚠ 显卡断过之后名已经改成「CPU（显卡断了，退回）」—— 建本地引擎别把它盖回去
+        if not self.名.startswith('CPU（'):
+            self.名 = 名字
+        return self._本地
 
     def transcribe(self, samples):
-        s = self.rec.create_stream()
-        s.accept_waveform(16000, np.asarray(samples, dtype=np.float32))
-        self.rec.decode_stream(s)
+        arr = np.asarray(samples, dtype=np.float32)
+        if self._gpu is not None:
+            try:
+                return (self._gpu.识别(arr) or '').strip()
+            except Exception:
+                # 显卡那条路断了：**只丢自己这份引用**，不关共享的子进程
+                # （电话还在用；真坏了它自己也会退回 CPU）。然后这辈子走 CPU。
+                self._gpu = None
+                self.名 = 'CPU（显卡断了，退回）'
+        rec = self._建本地()
+        s = rec.create_stream()
+        s.accept_waveform(16000, arr)
+        rec.decode_stream(s)
         return (s.result.text or '').strip()
 
 
