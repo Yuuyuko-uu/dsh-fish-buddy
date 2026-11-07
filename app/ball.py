@@ -575,9 +575,10 @@ class 分层悬浮窗:
                 u.GetSystemMetrics(self._SM_CYVIRTUALSCREEN))
 
     def _限位置(self, x, y):
-        sx, sy, sw, sh = self._屏幕范围()
-        return (max(sx, min(int(x), sx + sw - self.边长)),
-                max(sy, min(int(y), sy + sh - self.边长)))
+        # ⭐ 1.7.5（issue #7）：按**球所在那块屏**限位，别用虚拟屏幕那个外接矩形 ——
+        #   非矩形拼接时外接矩形里有空洞，球会被关到没有显示器的地方。
+        import 球位置 as _位
+        return _位.限位置(_位.枚举显示器(self._屏幕范围()), self.边长, x, y)
 
     def _命中按钮(self, x, y):
         return 命中悬浮按钮(x, y, self.边长)
@@ -1155,19 +1156,39 @@ class 鱼搭子:
             pass
         return (0, 0, self.根.winfo_screenwidth(), self.根.winfo_screenheight())
 
+    def _显示器们(self):
+        """每块屏的 (x, y, 宽, 高)。
+
+        ⭐ 1.7.5（issue #7）：以前只用「虚拟屏幕」那个**外接矩形** ——
+           三块屏非矩形拼接时，外接矩形里有大块没显示器的空洞，
+           球默认位置正好落在洞里，人看不见、程序却认为它在那儿。
+        """
+        import 球位置 as _位
+        return _位.枚举显示器(self._虚拟屏幕())
+
+    def _主屏(self):
+        """主显示器（原点 0,0 那块）；查不到就挑面积最大的。"""
+        import 球位置 as _位
+        return _位.主屏(self._显示器们())
+
+    def _落哪块屏(self, x, y):
+        """这个点落在哪块屏上；落在空洞里就挑离得最近的那块。"""
+        import 球位置 as _位
+        return _位.落哪块屏(self._显示器们(), x, y)
+
     def _限位置(self, x, y):
-        sx, sy, sw, sh = self._虚拟屏幕()
-        return (max(sx, min(int(x), sx + sw - self.球径)),
-                max(sy, min(int(y), sy + sh - self.球径)))
+        """把球关进**它所在那块屏**里（不是整个虚拟屏幕）。"""
+        import 球位置 as _位
+        return _位.限位置(self._显示器们(), self.球径, x, y)
 
     def _球位置(self):
         存 = 配置.get('ball_pos')
-        sx, sy, 宽, 高 = self._虚拟屏幕()
         if isinstance(存, list) and len(存) == 2:
             x, y = int(存[0]), int(存[1])
-        else:
-            x, y = sx + 宽 - self.球径 - 48, sy + int(高 * 0.55)
-        return self._限位置(x, y)
+            return self._限位置(x, y)
+        # ⭐ 1.7.5（issue #7）：默认位置按**主屏**算，不再按外接矩形算
+        import 球位置 as _位
+        return _位.默认位置(self._显示器们(), self.球径)
 
     # ---------- 球有多大 ----------
     def _球倍率(self):
@@ -3299,6 +3320,15 @@ class 鱼搭子:
         #   两个耳朵同时识别同一只麦克风，同一句话就被发两遍。给每个实例编号，旧号的结果一律丢。
         self._耳朵代 = getattr(self, '_耳朵代', 0) + 1
         代 = self._耳朵代
+        # ⭐ 1.7.4（issue #8）：换新耳朵之前，先把旧的那个停掉 ——
+        #   以前直接覆盖引用，旧耳朵的收音线程一直挂着（同一句话可能被听两遍），
+        #   而且它自己攥着一份 GPU 服务，子进程越堆越多。
+        旧 = getattr(self, '耳朵', None)
+        if 旧 is not None:
+            try:
+                旧.停()
+            except Exception:
+                pass
         self.耳朵 = 耳朵(
             依赖目录='',                      # 打包后 sherpa 就在程序里，不用再挂目录
             模型目录=paths.当前档目录(),
