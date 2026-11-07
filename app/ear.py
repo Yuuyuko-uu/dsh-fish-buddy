@@ -164,7 +164,7 @@ class 耳朵:
         except Exception as e:
             self.记一笔('GPU 那条路出错（退回 CPU）：%s' % e)
         if self._设备 == 'cpu':
-            self._识别器 = 拿识别器(self.模型目录, self.num_threads)
+            self._建本地()
         c = sherpa_onnx.VadModelConfig()
         c.silero_vad.model = silero路(self.模型目录)
         c.silero_vad.threshold = 0.35
@@ -198,20 +198,32 @@ class 耳朵:
         self.记一笔('模型和 VAD 都好了（安静 %.1f 秒算一句）' % 静音秒
                     + (('；收音门限 %.0f%%（低于它的声音直接丢掉）' % (self._门限 * 100)) if self._门限 > 0 else '；收音门限关着'))
 
+    def _建本地(self):
+        """本地 CPU 识别器（懒建）。
+
+        ⭐ 1.7.4：以前只有「设备是 cpu」时才建 —— 选了显卡之后 `_识别器` 一直是 None。
+           显卡那路一旦失败，`_认()` 退回本地就撞上 None，每句都崩在 create_stream，
+           整场哑掉（issue #10）。
+        """
+        if self._识别器 is None:
+            self._识别器 = 拿识别器(self.模型目录, self.num_threads)
+        return self._识别器
+
     def _认(self, samples):
         # ⭐ 1.6.4：GPU 那条路 —— 把音频丢给子进程；它挂了这一句退回本地，不让整条腿死掉。
         if self._设备 == 'cuda' and self._gpu is not None:
             try:
                 return self._gpu.识别(np.asarray(samples, dtype=np.float32))
             except Exception as e:
-                self.记一笔('GPU 识别失败（这一句改用本地）：%s' % e)
-                try:
-                    self._gpu.关掉()
-                except Exception:
-                    pass
-        s = self._识别器.create_stream()
+                # ⭐ 1.7.4（issue #10）：显卡失败就**永久退回 CPU**，而且只丢自己那份引用 ——
+                #   GPU 子进程是全进程共用的（电话和陪看同一份），关掉会把别人也弄哑。
+                self.记一笔('GPU 识别失败，这台机器改用本地 CPU：%s' % e)
+                self._设备 = 'cpu'
+                self._gpu = None
+        识别器 = self._建本地()
+        s = 识别器.create_stream()
         s.accept_waveform(self.sample_rate, np.asarray(samples, dtype=np.float32))
-        self._识别器.decode_stream(s)
+        识别器.decode_stream(s)
         text = (s.result.text or '').strip()
         return text
 
