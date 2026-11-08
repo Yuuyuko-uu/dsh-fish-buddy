@@ -393,6 +393,12 @@ def 补内置语音(档=''):
     except Exception:
         return False
 
+def 当前OCR设备():
+    """读字幕（OCR）用 cpu 还是 cuda。只读配置，能不能用由 ocr.py 判断。"""
+    v = str(读配置().get('ocr设备') or 'cpu').strip().lower()
+    return v if v in ('cpu', 'cuda') else 'cpu'
+
+
 def 当前设备():
     """用 cpu 还是 cuda。只读配置，**不判断能不能用**（判断在 ear.py，要查引擎）。"""
     v = str(读配置().get('语音设备') or 'cpu').strip().lower()

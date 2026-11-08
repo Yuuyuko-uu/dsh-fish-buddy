@@ -37,6 +37,30 @@ def 目录():
     return os.path.join(paths.用户目录(), 'ocr')
 
 
+def GPU运行时目录():
+    """显卡版 onnxruntime 解压在这儿（不塞安装包，点一下才下）。"""
+    return os.path.join(目录(), 'onnxruntime-gpu')
+
+
+def 有GPU运行时():
+    d = GPU运行时目录()
+    try:
+        return any(n.startswith('onnxruntime') for n in os.listdir(d))
+    except Exception:
+        return False
+
+
+def 挑执行器(设备):
+    """按配置挑 providers。显卡那条**只在真的装了 GPU 版时**才给。"""
+    if 设备 == 'cuda' and 有GPU运行时():
+        import sys
+        d = GPU运行时目录()
+        if d not in sys.path:
+            sys.path.insert(0, d)
+        return ['CUDAExecutionProvider', 'CPUExecutionProvider']
+    return ['CPUExecutionProvider']
+
+
 def 就绪():
     """两个模型都在用户目录里就算就绪；少了的话先从程序自带的 assets\\ocr 拷一份过来。"""
     d = 目录()
@@ -64,15 +88,27 @@ class 识别器:
         self._识别 = None
         self._字表 = None
         self._锁 = threading.Lock()
+        self.说明 = ''
 
     def _起(self):
         if self._检测 is not None:
             return
         import onnxruntime as ort
         d = 目录()
-        选 = ['CPUExecutionProvider']
-        self._检测 = ort.InferenceSession(os.path.join(d, 检测文件), providers=选)
-        self._识别 = ort.InferenceSession(os.path.join(d, 识别文件), providers=选)
+        选 = 挑执行器(paths.当前OCR设备())
+        try:
+            self._检测 = ort.InferenceSession(os.path.join(d, 检测文件), providers=选)
+            self._识别 = ort.InferenceSession(os.path.join(d, 识别文件), providers=选)
+        except Exception as e:
+            if len(选) > 1:
+                # ⭐ 显卡版起不来（没装 CUDA / DLL 不全 / 显卡不认）→ 退回 CPU，别让读字幕整个坏掉
+                self.说明 = '显卡起不来，退回 CPU：%s' % str(e)[:80]
+                self._检测 = ort.InferenceSession(os.path.join(d, 检测文件), providers=['CPUExecutionProvider'])
+                self._识别 = ort.InferenceSession(os.path.join(d, 识别文件), providers=['CPUExecutionProvider'])
+            else:
+                raise
+        else:
+            self.说明 = '用显卡' if len(选) > 1 else '用 CPU'
         表 = self._识别.get_modelmeta().custom_metadata_map.get('character') or ''
         self._字表 = [''] + 表.split('\n')      # 0 是 CTC 的 blank
 

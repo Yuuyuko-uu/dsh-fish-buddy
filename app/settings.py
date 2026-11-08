@@ -444,6 +444,45 @@ class 设置页:
         except Exception:
             pass
 
+    def _存OCR设备(self, 值):
+        c = dict(paths.读配置() or {})
+        c['ocr设备'] = 'cuda' if 值 == 'cuda' else 'cpu'
+        try:
+            if paths.写配置(c):
+                self.配置.update(c)
+                self.应用.配置.update(c)
+                self.说.set('读字幕改用%s，下一段视频生效' % ('显卡' if c['ocr设备'] == 'cuda' else 'CPU'))
+        except Exception:
+            pass
+
+    def _下OCR显卡版(self):
+        """点一下才下（跟模型一样，不塞安装包）。"""
+        try:
+            import ocrgpu
+            if not hasattr(self, '_ocr下'):
+                self._ocr下 = ocrgpu.下载器()
+            if self._ocr下.开始():
+                self.说.set('开始下显卡版推理库…（约 250MB）')
+                self._盯OCR下载()
+        except Exception as e:
+            self.说.set('下载起不来：%s' % str(e)[:80])
+
+    def _盯OCR下载(self):
+        try:
+            j = self._ocr下.进度()
+        except Exception:
+            return
+        if hasattr(self, 'OCR下载字') and self.OCR下载字.winfo_exists():
+            self.OCR下载字.config(text=j.get('说') or '')
+        if j.get('进行中'):
+            self.after(400, self._盯OCR下载)
+        else:
+            try:
+                import ocr
+                self.OCR状态.config(text=('已装：' if ocr.有GPU运行时() else '还没装') + ('' if ocr.有GPU运行时() else '（点右边下载）'))
+            except Exception:
+                pass
+
     def _刷N卡状态(self):
         """按引擎的**真实**状态刷新第二栏：没装 / 装了没测 / 测过能用 / 测过不能用。"""
         try:
@@ -676,6 +715,34 @@ class 设置页:
         tk.Checkbutton(卡, text='字幕也送给她', variable=self.字幕勾,
                        command=self._存陪看, bg=淡卡, fg=字深, activebackground=淡卡,
                        selectcolor=淡卡, anchor='w', font=('Microsoft YaHei UI', 字号)).pack(fill='x')
+        # ⭐ 读字幕（OCR）用 CPU 还是显卡：显卡版不塞安装包，点一下才下
+        行字 = tk.Frame(卡, bg=淡卡)
+        行字.pack(fill='x', pady=(8, 0))
+        tk.Label(行字, text='读字幕用', bg=淡卡, fg=字次,
+                 font=('Microsoft YaHei UI', 字号)).pack(side='left')
+        self.OCR设备 = tk.StringVar(value=str(self.配置.get('ocr设备') or 'cpu'))
+        for 值, 名 in (('cpu', 'CPU'), ('cuda', '显卡')):
+            tk.Radiobutton(行字, text=名, value=值, variable=self.OCR设备,
+                           command=lambda: self._存OCR设备(self.OCR设备.get()),
+                           bg=淡卡, fg=字深, activebackground=淡卡, selectcolor=淡卡,
+                           font=('Microsoft YaHei UI', 字号)).pack(side='left', padx=(10, 0))
+        try:
+            import ocr as _ocr
+            _有 = _ocr.有GPU运行时()
+        except Exception:
+            _有 = False
+        self.OCR状态 = tk.Label(行字, text=('已装' if _有 else '还没装（点右边下载）'),
+                                bg=淡卡, fg=字次, font=('Microsoft YaHei UI', 8))
+        self.OCR状态.pack(side='left', padx=(12, 0))
+        tk.Button(行字, text='下载显卡版', command=self._下OCR显卡版, relief='flat',
+                  bg='#ffffff', fg=字深, font=('Microsoft YaHei UI', 8),
+                  activebackground='#f2f2f2').pack(side='left', padx=(8, 0))
+        self.OCR下载字 = tk.Label(卡, text='', bg=淡卡, fg='#2f8f63',
+                                  font=('Microsoft YaHei UI', 8), anchor='w', justify='left')
+        self.OCR下载字.pack(fill='x')
+        tk.Label(卡, text='关掉上面那个勾（字幕也送给她）就完全不读字幕，最省 CPU。',
+                 bg=淡卡, fg=字次, font=('Microsoft YaHei UI', 8)).pack(fill='x')
+
         tk.Checkbutton(卡, text='开陪看时，顺手把电话（麦克风）也打开', variable=self.麦克风勾,
                        command=self._存陪看, bg=淡卡, fg=字深, activebackground=淡卡,
                        selectcolor=淡卡, anchor='w', font=('Microsoft YaHei UI', 字号)).pack(fill='x')
