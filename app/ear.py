@@ -72,21 +72,34 @@ def 预热(模型目录, num_threads=4):
         return False
 
 
+def 设备默认率(sd, 设备, 兜底=16000):
+    """这块设备自己认的采样率（问不到就用兜底，兜底给 0 就返回 0）。
+
+    ⚠ 设备 是 None（用系统默认麦）时不能把 None 递给 query_devices ——
+      那样它返回的是**整张设备表**，`.get` 直接抛，兜底就永远走不到。
+    """
+    try:
+        信息 = sd.query_devices(kind='input') if 设备 is None else sd.query_devices(设备)
+        默认 = int(round(float(信息.get('default_samplerate') or 0)))
+        return 默认 or int(兜底)
+    except Exception:
+        return int(兜底)
+
+
 def 选开率(sd, 设备, 想要=16000):
     """挑一个这块设备真能用的采样率，返回 (开率, 比值)。
 
     ⚠ 1.6.9：用户实测「麦克风打不开：Error opening InputStream: Invalid sample rate
       [PaErrorCode -9997]」—— 蓝牙耳机只支持 44100/48000，按 16000 开会直接失败。
       比值 = 开率 / 想要的；回调里按比值重采样回 16k。
+    ⚠ 1.7.8：这里只是「先问一遍」。`check_input_settings` 和真开麦走的不是一条路，
+      它照过的设备真开时照样可能报 AUDCLNT_E_UNSUPPORTED_FORMAT —— 真正的兜底在
+      _开流 里（建完就 start，起不来才换默认率）。
     """
     候选 = [int(想要)]
-    try:
-        信息 = sd.query_devices(设备)
-        默认 = float(信息.get('default_samplerate') or 0)
-        if 默认 and int(round(默认)) not in 候选:
-            候选.append(int(round(默认)))
-    except Exception:
-        pass
+    默认 = 设备默认率(sd, 设备, 想要)
+    if int(默认) not in 候选:
+        候选.append(int(默认))
     for 率 in 候选:
         try:
             sd.check_input_settings(device=设备, channels=1, dtype='float32', samplerate=率)
@@ -245,9 +258,9 @@ class 耳朵:
             #   ⚠ 光用 check_input_settings 查不出来（它和真正开麦走的不是同一条路），
             #     所以真开的时候再兜一层：开不起来就换设备默认率重开一次。
             开率, self._重采样比 = 选开率(sd, self.device, self.sample_rate)
-            流 = self._开流(sd, 开率)
-            self._设备率 = 开率
-            with 流:
+            流, 实际率 = self._开流(sd, 开率)
+            self._设备率 = 实际率
+            try:
                 self.记一笔('麦克风开着（进来 0 块之前不会有别的）')
                 while not self._stop.is_set():
                     try:
@@ -320,6 +333,17 @@ class 耳朵:
                             pass
                     self._排空()
                     self._报一次()
+            finally:
+                # ⭐ 1.7.8：以前用 `with 流:`，现在流在 _开流 里就已经 start 过了，
+                #   收尾自己来（stop + close），跟 with 退出时做的事一样。
+                try:
+                    流.stop()
+                except Exception:
+                    pass
+                try:
+                    流.close()
+                except Exception:
+                    pass
         except Exception as e:
             self.记一笔('挂了：%s' % e)
             self.on_state('error', '麦克风打不开：%s' % e)
@@ -328,26 +352,37 @@ class 耳朵:
             self.on_state('idle')
 
     def _开流(self, sd, 开率):
-        """按 开率 开一条输入流；失败就换这块设备的默认率再试一次（重采样由 _cb 负责）。"""
+        """开一条**已经在跑**的输入流，返回 (流, 实际开率)。
+
+        ⚠ 1.7.8：`sd.InputStream(...)` 只是建对象，真正去跟 WASAPI 谈格式是在 `start()`
+          那一刻。以前 try 只包了「建流」，蓝牙耳机（只支持 44100/48000）在 16k 上真开
+          的时候报 `AUDCLNT_E_UNSUPPORTED_FORMAT`，直接落到外层 except 写一句「挂了」，
+          「换设备默认率」那段兜底一次都没执行过（日志里只有「挂了」）。
+          现在：建完就 start，起不来才换默认率重开。
+        """
         块 = int(1024 * 开率 / self.sample_rate) or 1024
+        流 = sd.InputStream(samplerate=int(开率), channels=1, dtype='float32',
+                            device=self.device, callback=self._cb, blocksize=块)
         try:
-            return sd.InputStream(samplerate=开率, channels=1, dtype='float32',
-                                  device=self.device, callback=self._cb, blocksize=块)
+            流.start()
+            return 流, int(开率)
         except Exception as e:
             错 = str(e)
-            self.记一笔('按 %s Hz 开麦失败（%s），试着换设备默认率' % (开率, 错[:120]))
             try:
-                默认 = int(round(float(sd.query_devices(self.device).get('default_samplerate') or 0)))
+                流.close()
             except Exception:
-                默认 = 0
-            if not 默认 or 默认 == 开率:
+                pass
+            self.记一笔('按 %s Hz 开麦失败（%s），试着换设备默认率' % (开率, 错[:120]))
+            默认 = 设备默认率(sd, self.device, 0)
+            if not 默认 or int(默认) == int(开率):
                 raise
             self._重采样比 = float(默认) / float(self.sample_rate)
-            self._设备率 = 默认
             self.记一笔('改用设备默认率 %d Hz（会重采样回 %d）' % (默认, self.sample_rate))
             块2 = int(1024 * 默认 / self.sample_rate) or 1024
-            return sd.InputStream(samplerate=默认, channels=1, dtype='float32',
-                                  device=self.device, callback=self._cb, blocksize=块2)
+            流2 = sd.InputStream(samplerate=int(默认), channels=1, dtype='float32',
+                                 device=self.device, callback=self._cb, blocksize=块2)
+            流2.start()
+            return 流2, int(默认)
 
 
     def _排空(self):

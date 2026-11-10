@@ -16,6 +16,7 @@ import subprocess
 import sys
 import tkinter as tk
 
+import ear
 import models
 import paths
 import version
@@ -2610,12 +2611,16 @@ class 设置页:
             import numpy as np
             import sounddevice as sd
             设备 = self.配置.get('mic_device')
-            采样 = 16000
+            # ⚠ 1.7.8：量音量也得按设备自己的采样率开。写死 16000 的时候，蓝牙耳机
+            #   （只支持 44100/48000）一点下去就报 AUDCLNT_E_UNSUPPORTED_FORMAT，
+            #   界面上看着像「麦克风被别的程序占着」。
+            采样 = ear.设备默认率(sd, 设备, 16000)
+            块 = int(1024 * 采样 / 16000) or 1024
             块们 = []
             with sd.InputStream(samplerate=采样, channels=1, dtype='float32',
-                                device=设备, blocksize=1024) as 流:
-                for _ in range(max(1, int(采样 * 2 / 1024))):
-                    数据, _溢出 = 流.read(1024)
+                                device=设备, blocksize=块) as 流:
+                for _ in range(max(1, int(采样 * 2 / 块))):
+                    数据, _溢出 = 流.read(块)
                     块们.append(np.asarray(数据, dtype='float32').reshape(-1))
             if not 块们:
                 raise RuntimeError('一块都没收到')
