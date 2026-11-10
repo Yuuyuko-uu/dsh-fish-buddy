@@ -102,6 +102,35 @@ def 配台词(字幕们, 时, 左右=2):
             for x in 字幕们[起:止]]
 
 
+def 标注(字节, 行们):
+    """把「那一刻对应的那一句字幕 + 时间」画进图里（左上角半透明黑带）。"""
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+    except Exception:
+        return 字节
+    行们 = [str(x).strip() for x in (行们 or []) if str(x).strip()]
+    if not 行们:
+        return 字节
+    try:
+        图 = Image.open(io.BytesIO(字节)).convert('RGBA')
+        宽, 高 = 图.size
+        try:
+            字 = ImageFont.truetype('msyh.ttc', max(15, 宽 // 58))
+        except Exception:
+            字 = ImageFont.load_default()
+        行高 = max(24, 宽 // 42)
+        带宽 = 行高 * len(行们) + 14
+        蒙 = Image.new('RGBA', (宽, 带宽), (0, 0, 0, 150))
+        图.paste(蒙, (0, 0), 蒙)
+        量 = ImageDraw.Draw(图)
+        for i, 行 in enumerate(行们[:3]):
+            量.text((12, 7 + i * 行高), 行, font=字, fill=(255, 255, 255))
+        出 = io.BytesIO()
+        图.convert('RGB').save(出, 'JPEG', quality=80, optimize=True)
+        return 出.getvalue()
+    except Exception:
+        return 字节
+
 def 发(端口, 字节, 元=None, 超时=6):
     """POST 给插件。返回 (成不成, 一句人话)。"""
     元 = dict(元 or {})

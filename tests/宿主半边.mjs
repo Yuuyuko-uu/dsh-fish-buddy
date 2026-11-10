@@ -1,4 +1,4 @@
-// 鱼搭子 · 宿主那半边的自测
+﻿// 鱼搭子 · 宿主那半边的自测
 // 用法: node tests/宿主半边.mjs
 //
 // 不碰真实的 DSH：用临时 DSH_HOME + 假 ctx，真的起一个小口子，真的发 HTTP 过去。
@@ -254,9 +254,9 @@ await 开路由([JSON.stringify({})], 开回.res)
     }
     await 推({ text: '再看一眼这张' })
     const 段 = 取白板()
-    查('帧：排进了字幕里（白板里有一行「截了一张图」）', 段.includes('截了一张图'), 段.slice(-200))
-    查('帧：那一行带本地文件路径，并说明「用 read_image 打开看一眼」', 段.includes('用 read_image 打开看一眼：') && 段.includes('.jpg'), 段.slice(-200))
-    查('帧：跟字幕在同一段里（不是另起一轮）', 段.includes('再看一眼这张') && 段.includes('截了一张图'), 段.slice(-200))
+查('帧：**不进白板文字**了（改成一堆图塞进她开口那一轮）', !段.includes('截了一张图'), 段.slice(-200))
+查('帧：收下之后待发队列里有它', Number(帧体.帧数) >= 1, JSON.stringify(帧体))
+查('帧：白板里不再出现图片路径（模型不用自己 read_image）', !段.includes('read_image'), 段.slice(-160))
   }
 
 
@@ -283,7 +283,7 @@ await 开路由([JSON.stringify({})], 开回.res)
     调用.事件.get('session/event')({ id: 'abc' }, { type: 'turn/end', data: { turn: 78, reason: { kind: 'completed' } } })
     await 推({ text: '帧之后的一句' })
     const 段后 = 取白板2()
-    查('帧：同一张图的路径不会在下一轮再出现一次', !段后.includes('截了一张图'), 段后.slice(-200))
+查('帧：下一轮也不会出现在白板里', !段后.includes('截了一张图'), 段后.slice(-200))
   }
 
   const 态3 = 抓住()
