@@ -3586,7 +3586,10 @@ class 鱼搭子:
 
     # ---------- 刷屏 ----------
     def _写(self, 文本):
-        if not self.通话:
+        # ⚠ 1.7.9：`流水` 是设置窗「电话」那一页建出来的。游戏模式 / 刚启动时那页还没建，
+        #   这里只判了 self.通话 就会 AttributeError —— 表现是每条消息都报
+        #   `object has no attribute '流水'`（issue #11 报的就是这个）。
+        if not self.通话 or not hasattr(self, '流水'):
             return
         self.流水.configure(state='normal')
         self.流水.insert('end', 文本 + '\n')
