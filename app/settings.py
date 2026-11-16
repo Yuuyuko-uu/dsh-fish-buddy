@@ -1292,7 +1292,7 @@ class 设置页:
         tk.Checkbutton(键行2, text='几乎一样的图不发', variable=self.去重勾,
                        command=self._存去重, bg=淡卡, fg=字深, activebackground=淡卡,
                        selectcolor=淡卡, font=('Microsoft YaHei UI', 字号)).pack(side='left')
-        tk.Label(卡锁, text='键盘、鼠标侧键、小键盘都行；可以单击，也可以按住 Ctrl / Alt / Shift 配一个。只在游戏模式里生效。「立即截图」只截一张、不碰麦克风，默认没绑。',
+        tk.Label(卡锁, text='键盘、鼠标侧键、小键盘都行。只在游戏模式里生效。「立即截图」只截一张、不碰麦克风。',
                  bg=淡卡, fg=字次, anchor='w', justify='left', wraplength=460,
                  font=('Microsoft YaHei UI', 8)).pack(fill='x', pady=(4, 0))
         # ⭐ 1.3.9：截图怎么送 —— 两档
