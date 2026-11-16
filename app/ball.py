@@ -1009,6 +1009,15 @@ class Windows托盘:
 
 
 
+def 松手后还听吗(通话):
+    """⭐ 1.8.0：按住说话/带图松手之后，那只耳朵还要不要继续听。
+
+    电话正开着 → 要继续听（那只耳朵本来就是电话的，静音了电话就聋了）。
+    电话没开 → 闭嘴，松手以后旁边说话不该再被录。
+    """
+    return bool(通话)
+
+
 class 鱼搭子:
     # 单字里放行的那几个（挂机时只有一个字的多半是噪声）
     语气词 = set('嗯啊哦呃唉哎哈呵喂好行对是的吧嘛呀咯啦嗷呜嘿诶喔噢')
@@ -2225,7 +2234,7 @@ class 鱼搭子:
         # 判重：变化的块 ≤ 15%，并且整体指纹差 ≤ 6 位（≈90% 像）
         return 比 <= 0.15 and 距离 <= 6
 
-    def _截一张(self, 来源='游戏', 强制发=False):
+    def _截一张(self, 来源='游戏', 强制发=False, 跳过去重=False):
         """抓一张、压好、递给插件 —— 插件会把**图片本身**发给她看（不是只给路径）。"""
         try:
             import frames
@@ -2238,7 +2247,8 @@ class 鱼搭子:
             self._记截图('抓不到画面（%s）' % (框,))
             return False
         # ⭐ 1.5.1：跟上一张**几乎一样**就跳过（挂机时草木动一下、云飘一下不算变）
-        if not 强制发 and 来源 == '游戏' and bool(配置.get('截图去重', True)):
+        # ⭐ 1.7.10：手动截的那张**就算跟上张一样也留**（跳过去重）—— 是她自己按的，不是挂机自动截的
+        if not 强制发 and not 跳过去重 and 来源 == '游戏' and bool(配置.get('截图去重', True)):
             try:
                 if self._像刚才一样吗(图):
                     self.连跳 = int(getattr(self, '连跳', 0)) + 1
@@ -2277,6 +2287,36 @@ class 鱼搭子:
         self._记截图('截图（%s）：%dKB %s → %s｜%s'
                    % (来源, len(字节) // 1024, '%dx%d' % 尺寸, 'ok' if 好 else '失败', str(说)[:60]))
         return bool(好)
+
+    def _手动游戏截图(self):
+        """⭐ 1.7.10：游戏模式里按一下「立即截图」—— 只截一张，不碰麦克风。
+
+        ⚠ 别借用「截图&说话」那个键：那个键会开耳朵、还会在松手时把电话正在用的
+        那只耳朵静音（这个 bug 1.7.10 一并修了）。她只是想让大肥鱼看一眼画面时，
+        不该顺带把收音搞坏。
+        """
+        if not getattr(self, '游戏模式', False):
+            return
+        if getattr(self, '_手动截图中', False):
+            return
+        self._手动截图中 = True
+
+        def 抓():
+            try:
+                self._截一张('游戏', 跳过去重=True)
+            except Exception as e:
+                try:
+                    self._记截图('手动截图失败：%s' % e)
+                except Exception:
+                    pass
+            finally:
+                self._手动截图中 = False
+
+        try:
+            threading.Thread(target=抓, name='fishbuddy-manual-shot', daemon=True).start()
+        except Exception:
+            self._手动截图中 = False
+            raise
 
     def _记截图(self, 文):
         try:
@@ -2433,6 +2473,9 @@ class 鱼搭子:
         }
         if 键文 in 鼠标:
             return 饰, 鼠标[键文]
+          # ⭐ 1.7.10：小键盘也能录（'小键盘8' → 0x68，跟上排的 8=0x38 不是一个键）
+        if 键文.startswith('小键盘') and len(键文) == 4 and 键文[-1].isdigit():
+            return 饰, 0x60 + int(键文[-1])
         if len(键文) == 1 and (键文.isalpha() or 键文.isdigit()):
             码 = ord(键文.upper())
         elif 键文.startswith('f') and 键文[1:].isdigit():
@@ -2456,7 +2499,8 @@ class 鱼搭子:
         import ctypes as _ct
         方案 = [('退出', 配置.get('游戏退出键') or 'Alt+G', self._退出游戏, '退出游戏模式'),
                 ('锁', 配置.get('游戏锁键') or 'Alt+H', self._切框锁定, '切换弹幕框锁定'),
-                ('清', 配置.get('游戏清键') or 'Alt+J', self._清待发截图, '清空待发截图')]
+                ('清', 配置.get('游戏清键') or 'Alt+J', self._清待发截图, '清空待发截图'),
+                ('截图', 配置.get('游戏立即截图键') or '', self._手动游戏截图, '立即截图')]
         try:
             真按 = {'ctrl': bool(_ct.windll.user32.GetAsyncKeyState(0x11) & 0x8000),
                     'alt': bool(_ct.windll.user32.GetAsyncKeyState(0x12) & 0x8000),
@@ -2674,9 +2718,12 @@ class 鱼搭子:
         except Exception:
             pass
         # ⭐ 1.2.1：定稿之后就闭嘴 —— 松手以后旁边说话不再被录、也不再发出去
+        # ⚠ 1.7.10：但**电话正开着的时候不能闭**。
+        #   按住说话/带图借的就是电话那只耳朵；以前这里无条件 只听(False)，
+        #   电话看着还开着、其实一个音都不听了，得把电话关掉再开一次才抢回收音。
         try:
             if getattr(self, '耳朵', None):
-                self.耳朵.只听(False)
+                self.耳朵.只听(松手后还听吗(getattr(self, '通话', False)))
         except Exception:
             pass
         # ⚠ 1.1.9：以前只等 1.2 秒就去收尾 —— 识别一句常常要 1.5 秒以上，
