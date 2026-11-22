@@ -2247,6 +2247,37 @@ class 鱼搭子:
         return 比 <= 0.15 and 距离 <= 6
 
     def _截一张(self, 来源='游戏', 强制发=False, 跳过去重=False):
+        """⭐ 1.7.11（反馈 #4）：把这个活**挪到后台线程**跑。
+
+        以前「抓屏 57ms + 缩放压缩 30ms + 发送」全在主线程里 ——
+        游戏模式每隔一两分钟就顿一下，顿的那一下就是它。
+        挪走以后，抓屏再慢界面也不会卡；同一时刻只允许一张在跑。
+        """
+        if getattr(self, '_截图中', False):
+            记右键('上一张还没截完，这次先跳过')
+            return False
+        self._截图中 = True
+
+        def 干():
+            try:
+                self._截一张_同步(来源, 强制发, 跳过去重)
+            except Exception as e:
+                try:
+                    记右键('截图线程出错：%s' % e)
+                except Exception:
+                    pass
+            finally:
+                self._截图中 = False
+
+        try:
+            threading.Thread(target=干, daemon=True).start()
+            return True
+        except Exception as e:
+            self._截图中 = False
+            记右键('截图线程起不来，改回原地跑：%s' % e)
+            return self._截一张_同步(来源, 强制发, 跳过去重)
+
+    def _截一张_同步(self, 来源='游戏', 强制发=False, 跳过去重=False):
         """抓一张、压好、递给插件 —— 插件会把**图片本身**发给她看（不是只给路径）。"""
         try:
             import frames
@@ -2293,7 +2324,8 @@ class 鱼搭子:
                 if isinstance(说, str) and '"攒"' in 说:
                     对数 = int(_json.loads(说).get('攒') or 0)
                 if 对数 and getattr(self, '弹幕框', None):
-                    self.弹幕框.设状态('已截图待发 · %d 张' % 对数)
+                    # ⚠ 这一段跑在后台线程里，Tk 控件必须丢回主线程改
+                    self._界面(lambda: self.弹幕框 and self.弹幕框.设状态('已截图待发 · %d 张' % 对数))
             except Exception:
                 pass
         self._记截图('截图（%s）：%dKB %s → %s｜%s'
@@ -2329,6 +2361,20 @@ class 鱼搭子:
         except Exception:
             self._手动截图中 = False
             raise
+
+    def _界面(self, fn):
+        """在**主线程**里跑一段碰界面的代码（截图那套已经挪到后台线程了）。
+
+        Tk 不是线程安全的：后台线程直接动控件会偶发崩溃/花屏，
+        所以统一用 `根.after(0, …)` 丢回主线程。
+        """
+        try:
+            if threading.current_thread() is threading.main_thread():
+                fn()
+            else:
+                self.根.after(0, fn)
+        except Exception:
+            pass
 
     def _记截图(self, 文):
         try:
