@@ -1389,6 +1389,13 @@ class 鱼搭子:
                         continue
                 except Exception:
                     continue
+                # ⭐ 1.7.11（反馈 #3）：设置窗（面板）**不归这里管** —— 它有「设置窗置顶」那个开关。
+                #   以前这个循环每 1.2 秒把它抬回来，用户拿别的工具取消置顶也被顶回去。
+                try:
+                    if 窗 is self.面板 and not bool((self.配置 or {}).get('设置窗置顶', True)):
+                        continue
+                except Exception:
+                    pass
                 if 还在最上层(窗):
                     continue
                 钉到最上层(窗)
@@ -1657,6 +1664,11 @@ class 鱼搭子:
         p.resizable(True, True)
         p.protocol('WM_DELETE_WINDOW', self._关闭功能)
         self._设窗口图标(p)
+        # ⭐ 1.7.11（反馈 #3）：按配置决定这个窗要不要一直在最上面
+        try:
+            p.attributes('-topmost', bool((self.配置 or {}).get('设置窗置顶', True)))
+        except Exception:
+            pass
         self.面板 = p
 
         边框 = tk.Frame(p, bg=淡线, padx=1, pady=1)
@@ -1962,7 +1974,7 @@ class 鱼搭子:
             self._进游戏模式()
             try:
                 if self.面板 and self.当前页 == '设置':
-                    self.面板.attributes('-topmost', True)
+                    self.面板.attributes('-topmost', bool((self.配置 or {}).get('设置窗置顶', True)))
                     self.面板.deiconify()
                     self.面板.lift()
             except Exception:
@@ -2262,7 +2274,7 @@ class 鱼搭子:
                     self.连跳 = 0
             except Exception as e:
                 记右键('截图去重没算成（照发）：%s' % e)
-        字节, 尺寸 = frames.压(图, 1280, 75)
+        字节, 尺寸 = frames.压(图)
         frames.存(字节, '截图')
         端口 = int(配置.get('dsh_port') or 8777)
         # ⭐ 1.3.9：'攒着' 那一档只把图交给插件存着（存档=1），**不叫醒**；
@@ -2339,7 +2351,7 @@ class 鱼搭子:
             图 = frames.抓(框)
             if 图 is None:
                 return None
-            字节, 尺寸 = frames.压(图, 1280, 75)
+            字节, 尺寸 = frames.压(图)
             记右键('插件来要图：给了 %dKB %dx%d' % (len(字节) // 1024, 尺寸[0], 尺寸[1]))
             return 字节, 尺寸
         except Exception as e:
@@ -2683,7 +2695,7 @@ class 鱼搭子:
                     import frames
                     图 = frames.抓(self._截图区('热键截图框'))
                     if 图 is not None:
-                        字节, _ = frames.压(图, 1280, 75)
+                        字节, _ = frames.压(图)
                         按住['图'] = 字节
                         记右键('按住说话：按下那一下截了一张（%dKB）' % (len(字节) // 1024))
                 except Exception as e:
@@ -3100,7 +3112,7 @@ class 鱼搭子:
         try:
             self._切页('设置')
             if self.面板:
-                self.面板.attributes('-topmost', True)
+                self.面板.attributes('-topmost', bool((self.配置 or {}).get('设置窗置顶', True)))
                 self.面板.deiconify()
                 self.面板.lift()
         except Exception as e:
@@ -4052,7 +4064,7 @@ def 自测():
         断言.append(('抽帧：配台词会取这一帧前后几句（%d 句）' % len(挑), 2 <= len(挑) <= 5))
         断言.append(('抽帧：配的台词里有「此刻正在说的那句」', any(x[1] == '四' for x in 挑)))
         图 = _图2.new('RGB', (2560, 1440), (30, 40, 50))
-        字, 尺寸 = _帧.压(图, 1280, 75)
+        字, 尺寸 = _帧.压(图)
         断言.append(('抽帧：2K 能压到 1280 宽（%dx%d，%dKB）' % (尺寸[0], 尺寸[1], len(字) // 1024),
                      尺寸[0] == 1280 and len(字) < 200 * 1024))
     except Exception as e:

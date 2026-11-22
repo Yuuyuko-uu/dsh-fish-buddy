@@ -1287,7 +1287,7 @@ class App:
                 图 = frames.抓(框)
                 if 图 is None:
                     continue
-                字节, 尺寸 = frames.压(图, 1280, 75)
+                字节, 尺寸 = frames.压(图)
                 路 = frames.存(字节)
                 词 = frames.配台词(list(self.最近字幕), 此刻)
                 # ⭐ 0.9.0：图里只标**这一刻对应的那一句**（不是把附近几句都堆上去 ——

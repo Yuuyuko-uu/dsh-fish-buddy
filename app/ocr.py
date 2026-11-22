@@ -17,6 +17,7 @@
 """
 import ctypes
 import os
+import sys
 import threading
 import time
 
@@ -50,14 +51,71 @@ def 有GPU运行时():
         return False
 
 
+def 载入显卡版():
+    """把下载的 GPU 版 onnxruntime **按路径**加载进来。返回 (模块 or None, 一句说明)。
+
+    ⚠⚠ 为什么不能只靠 `sys.path.insert`（用户反馈 #1 就栽在这儿）：
+        打好的 exe 里，PyInstaller 的导入器排在 sys.path 前面 —— `import onnxruntime`
+        永远拿到**内置的 CPU 版**；而且一个模块加载过就不会再换。
+        （语音那套 sherpa 当初撞的是同一堵墙，最后改成子进程才解决。）
+        OCR 这里没法在同一个进程里同时容下 CPU/GPU 两份 DLL，
+        所以先试「按文件路径硬加载 GPU 那份」：成了就用显卡，不成也照样退回 CPU，
+        但**一定要把原因说出来**，不能默默跑在 CPU 上吭都不吭一声。
+    """
+    d = GPU运行时目录()
+    包 = os.path.join(d, 'onnxruntime', '__init__.py')
+    if not os.path.exists(包):
+        return None, '没找到显卡版 onnxruntime'
+    已 = sys.modules.get('onnxruntime')
+    if 已 is not None:
+        旧路 = str(getattr(已, '__file__', '') or '').replace('\\', '/')
+        if 旧路.startswith(d.replace('\\', '/')):
+            return 已, '已经是显卡版'
+        # 已经被内置的 CPU 版占住了：换不动，但把话说清楚
+        占位 = 旧路 or '（内置）'
+    else:
+        占位 = ''
+    try:
+        import importlib.util
+        capi = os.path.join(d, 'onnxruntime', 'capi')
+        for 路 in (capi, d):
+            if os.path.isdir(路) and hasattr(os, 'add_dll_directory'):
+                try:
+                    os.add_dll_directory(路)
+                except Exception:
+                    pass
+        spec = importlib.util.spec_from_file_location(
+            'onnxruntime', 包, submodule_search_locations=[os.path.join(d, 'onnxruntime')])
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules['onnxruntime'] = mod
+        try:
+            spec.loader.exec_module(mod)
+        except Exception:
+            if 占位:
+                sys.modules['onnxruntime'] = 已
+            else:
+                sys.modules.pop('onnxruntime', None)
+            raise
+        可用 = []
+        try:
+            可用 = list(mod.get_available_providers())
+        except Exception:
+            pass
+        有卡 = 'CUDAExecutionProvider' in 可用
+        return mod, ('显卡版已加载（CUDA 可用）' if 有卡
+                     else '显卡版加载了，但 CUDA 不可用 —— 多半缺 cuDNN / cuBLAS')
+    except Exception as e:
+        尾巴 = ('（已被内置的 CPU 版占用：%s）' % 占位) if 占位 else ''
+        return None, '显卡版加载失败：%s%s' % (str(e)[:110], 尾巴)
+
+
 def 挑执行器(设备):
-    """按配置挑 providers。显卡那条**只在真的装了 GPU 版时**才给。"""
+    """按配置挑 providers。显卡那条**只在真的装了 GPU 版、而且加载得起来**时给。"""
     if 设备 == 'cuda' and 有GPU运行时():
-        import sys
-        d = GPU运行时目录()
-        if d not in sys.path:
-            sys.path.insert(0, d)
-        return ['CUDAExecutionProvider', 'CPUExecutionProvider']
+        mod, _说 = 载入显卡版()
+        if mod is not None:
+            return ['CUDAExecutionProvider', 'CPUExecutionProvider']
+        return ['CPUExecutionProvider']
     return ['CPUExecutionProvider']
 
 
@@ -93,8 +151,17 @@ class 识别器:
     def _起(self):
         if self._检测 is not None:
             return
-        import onnxruntime as ort
+        try:
+            import onnxruntime as ort
+        except Exception:
+            # ⭐ 1.7.11：从源码跑的时候没有内置的 CPU 版 ——
+            #   那就用下载的显卡版顶上（它自带一份 onnxruntime，CPU 也能跑）。
+            _m, _s = 载入显卡版()
+            if _m is None:
+                raise RuntimeError('取不到 onnxruntime：内置的没有，下载的显卡版也起不来（%s）' % _s)
+            ort = _m
         d = 目录()
+        要显卡 = (paths.当前OCR设备() == 'cuda') and 有GPU运行时()
         选 = 挑执行器(paths.当前OCR设备())
         try:
             self._检测 = ort.InferenceSession(os.path.join(d, 检测文件), providers=选)
@@ -102,13 +169,29 @@ class 识别器:
         except Exception as e:
             if len(选) > 1:
                 # ⭐ 显卡版起不来（没装 CUDA / DLL 不全 / 显卡不认）→ 退回 CPU，别让读字幕整个坏掉
-                self.说明 = '显卡起不来，退回 CPU：%s' % str(e)[:80]
+                因 = str(e)[:100]
+                提示 = ''
+                if any(k in 因.lower() for k in ('cudnn', 'cublas', 'cuda', 'dll')):
+                    提示 = '（缺 cuDNN / cuBLAS 或 CUDA 版本不匹配 —— 「下载显卡版」里那三样都装上试试）'
+                self.说明 = '显卡起不来，退回 CPU：%s%s' % (因, 提示)
                 self._检测 = ort.InferenceSession(os.path.join(d, 检测文件), providers=['CPUExecutionProvider'])
                 self._识别 = ort.InferenceSession(os.path.join(d, 识别文件), providers=['CPUExecutionProvider'])
             else:
                 raise
         else:
-            self.说明 = '用显卡' if len(选) > 1 else '用 CPU'
+            # ⭐ 1.7.11：**看真的用了哪个执行器**，不看「我挑了几个」——
+            #   挑了 CUDA 但驱动不认的时候，session 会静悄悄降级，providers 才是实情。
+            真 = []
+            try:
+                真 = list(self._检测.get_providers())
+            except Exception:
+                pass
+            if 'CUDAExecutionProvider' in 真:
+                self.说明 = '用显卡'
+            elif 要显卡:
+                self.说明 = '用 CPU（显卡版装上了，但这次没走显卡 —— 多半缺 cuDNN / cuBLAS）'
+            else:
+                self.说明 = '用 CPU'
         表 = self._识别.get_modelmeta().custom_metadata_map.get('character') or ''
         self._字表 = [''] + 表.split('\n')      # 0 是 CTC 的 blank
 

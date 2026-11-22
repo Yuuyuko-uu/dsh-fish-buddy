@@ -31,6 +31,23 @@ import paths
 最多留几张 = 20
 
 
+def 截图参数():
+    """从配置里读「压多宽 / 多少质量」。
+
+    返回 (宽, 质)。**宽 = 0 表示不压缩**，按原尺寸发。
+    配置读不出来就退回默认（1280 / 75），别让截图整个坏掉。
+    """
+    try:
+        c = paths.读配置() or {}
+        宽 = c.get('截图宽', 默认宽度)
+        质 = c.get('截图质', 默认质量)
+        宽 = max(0, min(7680, int(宽)))
+        质 = max(50, min(100, int(质)))
+        return 宽, 质
+    except Exception:
+        return 默认宽度, 默认质量
+
+
 def 目录():
     路 = os.path.join(paths.用户目录(), 'frames')
     try:
@@ -51,9 +68,19 @@ def 抓(框):
         return None
 
 
-def 压(图, 宽=默认宽度, 质=默认质量):
-    """压成 JPEG 字节。返回 (字节, 实际尺寸)。"""
+def 压(图, 宽=None, 质=None):
+    """压成 JPEG 字节。返回 (字节, 实际尺寸)。
+
+    ⭐ 1.7.11：宽 / 质不传就读配置（`截图宽` / `截图质`），**0 表示不压缩**。
+       以前五个调用点都写死 1280×75 —— 2K 屏的小字糊掉，模型读不出来。
+    """
+    if 宽 is None or 质 is None:
+        _宽, _质 = 截图参数()
+        宽 = _宽 if 宽 is None else 宽
+        质 = _质 if 质 is None else 质
     w, h = 图.size
+    if int(宽) <= 0:
+        宽 = w                      # 0 = 原尺寸
     宽 = max(160, min(int(宽), w))
     高 = max(1, int(round(h * 宽 / float(w))))
     小 = 图 if (宽, 高) == (w, h) else 图.resize((宽, 高), Image.LANCZOS)

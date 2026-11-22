@@ -21,6 +21,38 @@ import models
 import paths
 import version
 
+
+def _造试图():
+    """画一张「白底黑字」的测试图，用来真跑一次识别。
+
+    ⭐ 1.7.11：测显卡不能只看「识别器造出来没有」—— 得真喂它一张图。
+       字取得大、黑白分明，免得因为图太小认不出，反过来冤枉显卡。
+    """
+    from PIL import Image, ImageDraw, ImageFont
+    图 = Image.new('RGB', (560, 140), 'white')
+    画 = ImageDraw.Draw(图)
+    字 = None
+    for 名 in ('msyh.ttc', 'simhei.ttf', 'simsun.ttc'):
+        try:
+            字 = ImageFont.truetype(os.path.join(os.environ.get('WINDIR', 'C:/Windows'), 'Fonts', 名), 72)
+            break
+        except Exception:
+            字 = None
+    if 字 is None:
+        try:
+            字 = ImageFont.load_default()
+        except Exception:
+            字 = None
+    文本 = '鱼搭子测试一二三'
+    try:
+        框 = 画.textbbox((0, 0), 文本, font=字) if 字 else None
+        宽 = (框[2] - 框[0]) if 框 else 400
+        高 = (框[3] - 框[1]) if 框 else 72
+    except Exception:
+        宽, 高 = 400, 72
+    画.text(((560 - 宽) // 2, (140 - 高) // 2 - 8), 文本, fill='black', font=字)
+    return 图
+
 淡底 = '#dcebf3'
 淡卡 = '#edf5fa'
 淡线 = '#b6cbd8'
@@ -499,22 +531,38 @@ class 设置页:
         self._测OCR()
 
     def _测OCR(self):
-        """真起一次会话试跑：能起来才算数。"""
+        """真起一次会话、**真认一张图**：认得出来才算数。
+
+        ⚠ 1.7.11（用户反馈 #2）：以前只把识别器**造出来**就看它的 `.说明` ——
+          可 `说明` 要等第一次真识别（`_起()`）才会赋值，所以永远是空，
+          界面就永远显示「没返回说明」。现在真的画一张图、真的认一遍。
+        """
         try:
             import ocr, paths as _p
-            原 = _p.读配置().get('ocr设备')
+            原 = (_p.读配置() or {}).get('ocr设备')
             try:
-                _p.写配置({**_p.读配置(), 'ocr设备': 'cuda'})
-                r = ocr.识别器() if hasattr(ocr, '识别器') else None
-                用 = getattr(r, '说明', '') if r else ''
+                _p.写配置({**(_p.读配置() or {}), 'ocr设备': 'cuda'})
+                if not ocr.就绪():
+                    self.OCR说明.config(text='字幕模型还没下好 —— 先把模型下完再测。', fg='#a33')
+                    return
+                r = ocr.识别器()
+                图 = _造试图()
+                字, _框 = r.认(图)
+                用 = str(getattr(r, '说明', '') or '').strip()
+                认出 = str(字 or '').strip().replace(' ', '')
+                真走显卡 = ('显卡' in 用) and ('起不来' not in 用) and ('没走显卡' not in 用)
+                if 真走显卡:
+                    self.OCR说明.config(text='✓ 显卡能用（%s）%s' % (用, ('，认出了「%s」' % 认出) if 认出 else ''),
+                                       fg='#2f8f63')
+                else:
+                    self.OCR说明.config(
+                        text='✗ 还是 CPU：%s%s' % (用 or '没返回说明',
+                                                 ('（认出了「%s」）' % 认出) if 认出 else '（测试图也没认出来）'),
+                        fg='#a33')
             finally:
-                _p.写配置({**_p.读配置(), 'ocr设备': 原})
-            if '显卡' in str(用):
-                self.OCR说明.config(text='✓ 显卡能用：%s' % 用, fg='#2f8f63')
-            else:
-                self.OCR说明.config(text='显卡起不来，还是 CPU：%s' % (用 or '没返回说明'))
+                _p.写配置({**(_p.读配置() or {}), 'ocr设备': 原})
         except Exception as e:
-            self.OCR说明.config(text='试跑出错：%s' % str(e)[:80])
+            self.OCR说明.config(text='试跑出错：%s' % str(e)[:110], fg='#a33')
         self._刷OCR状态()
 
     def _下OCR显卡版(self):
@@ -1549,6 +1597,60 @@ class 设置页:
             self.说.set('塞不进去：%s' % e)
 
     # ---------- 4 全局（气泡、截图、悬浮窗、开机）----------
+    def _存置顶(self):
+        """设置窗要不要一直压在最上面（反馈 #3）。"""
+        try:
+            c = dict(paths.读配置() or {})
+            c['设置窗置顶'] = bool(self.置顶勾.get())
+            if paths.写配置(c):
+                self.应用.配置.update(c)
+                self.配置.update(c)
+                面板 = getattr(self.应用, '面板', None)
+                if 面板 is not None:
+                    try:
+                        面板.attributes('-topmost', c['设置窗置顶'])
+                    except Exception:
+                        pass
+                self.说.set('设置窗：%s' % ('一直最前面' if c['设置窗置顶'] else '不再强制置顶'))
+        except Exception as e:
+            self.说.set('置顶没改成功：%s' % e)
+
+    def _截图尺寸说明(self):
+        try:
+            宽 = int((self.配置 or {}).get('截图宽', 1280) or 0)
+            质 = int((self.配置 or {}).get('截图质', 75) or 75)
+        except Exception:
+            宽, 质 = 1280, 75
+        if 宽 == 0:
+            return '现在：原尺寸不压缩，质量 %d。2K/4K 屏的小字这样最清楚，但一张图会大不少。' % 质
+        return '现在：压到 %dpx 宽，质量 %d。想要更清楚就把宽度填大一点，或者填 0 直接不压。' % (宽, 质)
+
+    def _存截图尺寸(self):
+        """截图宽度 / 质量 —— 全局那两项（所有截图共用）。
+
+        宽度是三选一：1280 / 1920 / 0（不压缩）。
+        """
+        try:
+            c = dict(paths.读配置() or {})
+            宽 = int(self.截宽.get() or 0)
+            c['截图宽'] = 宽 if 宽 in (1280, 1920) else 0
+            try:
+                c['截图质'] = max(50, min(100, int(str(self.截质.get()).strip() or 75)))
+            except Exception:
+                c['截图质'] = 75
+            if paths.写配置(c):
+                self.应用.配置.update(c)
+                self.配置.update(c)
+                try:
+                    self.截尺寸说.configure(text=self._截图尺寸说明())
+                except Exception:
+                    pass
+                self.说.set('截图大小：%s，质量 %d'
+                          % ('不压缩（原尺寸）' if c['截图宽'] == 0 else '%d × %d' % (c['截图宽'], int(c['截图宽'] * 9 / 16)),
+                             c['截图质']))
+        except Exception as e:
+            self.说.set('截图大小没存上：%s' % e)
+
     def _建全局(self):
         框 = self._新页('全局')
         self._标题(框, '全局')
@@ -1561,6 +1663,44 @@ class 设置页:
         tk.Checkbutton(行1, text='开机就浮出来', variable=self.开机勾, command=self._切开机,
                        bg=淡卡, fg=字深, activebackground=淡卡, selectcolor=淡卡,
                        font=('Microsoft YaHei UI', 字号)).pack(side='left', padx=(12, 0))
+
+        # ⭐ 1.7.11（用户反馈 #3）：设置窗以前是**强制**置顶的，而且每 1.2 秒抬一次 ——
+        #   用别的工具取消置顶，一两秒又被顶回去。给个开关，默认还是开着的。
+        卡顶 = self._卡(框)
+        self.置顶勾 = tk.BooleanVar(value=bool(self.配置.get('设置窗置顶', True)))
+        tk.Checkbutton(卡顶, text='设置窗口一直在最前面（关掉它就能被别的窗口盖住）',
+                       variable=self.置顶勾, command=self._存置顶,
+                       bg=淡卡, fg=字深, activebackground=淡卡, selectcolor=淡卡, anchor='w',
+                       font=('Microsoft YaHei UI', 字号)).pack(fill='x')
+
+        # ⭐ 1.7.11：截图压多大 —— **所有截图都按这个来**
+        #   （游戏自动截、快捷键截、按住说话附带的那张、陪看抽帧），所以放全局，不在游戏页。
+        卡截 = self._卡(框)
+        tk.Label(卡截, text='截图大小（所有截图都按这个来）', bg=淡卡, fg=字深, anchor='w',
+                 font=('Microsoft YaHei UI', 字标, 'bold')).pack(fill='x')
+        行截 = tk.Frame(卡截, bg=淡卡)
+        行截.pack(fill='x', pady=(6, 0))
+        现宽 = int(self.配置.get('截图宽', 1280) or 0)
+        self.截宽 = tk.IntVar(value=(1920 if 现宽 == 1920 else (0 if 现宽 == 0 else 1280)))
+        for 值, 名 in ((1280, '1280 × 720'), (1920, '1920 × 1080'), (0, '不压缩（原尺寸）')):
+            tk.Radiobutton(行截, text=名, value=值, variable=self.截宽, command=self._存截图尺寸,
+                           bg=淡卡, fg=字深, activebackground=淡卡, selectcolor=淡卡,
+                           font=('Microsoft YaHei UI', 字号)).pack(side='left', padx=(0, 12))
+        行截2 = tk.Frame(卡截, bg=淡卡)
+        行截2.pack(fill='x', pady=(6, 0))
+        tk.Label(行截2, text='质量', bg=淡卡, fg=字次,
+                 font=('Microsoft YaHei UI', 字号)).pack(side='left')
+        self.截质 = tk.StringVar(value=str(int(self.配置.get('截图质', 75))))
+        框质 = tk.Entry(行截2, textvariable=self.截质, width=4, bg='#ffffff', relief='flat',
+                        font=('Microsoft YaHei UI', 字号), highlightthickness=1, highlightbackground=淡线)
+        框质.pack(side='left', padx=(6, 4), ipady=2)
+        tk.Label(行截2, text='（50～100；糊就往上调，卡就往下调）', bg=淡卡, fg=字次,
+                 font=('Microsoft YaHei UI', 8)).pack(side='left')
+        self.截尺寸说 = tk.Label(卡截, text=self._截图尺寸说明(), bg=淡卡, fg=字次, anchor='w',
+                             justify='left', wraplength=460, font=('Microsoft YaHei UI', 8))
+        self.截尺寸说.pack(fill='x', pady=(6, 0))
+        框质.bind('<Return>', lambda e: (self._存截图尺寸(), 'break')[-1])
+        框质.bind('<FocusOut>', lambda e: self._存截图尺寸())
 
         # ⭐ 屏幕缩放（远程放大过系统缩放时，鱼不会自己变大 → 这里能跟着走，也能手动调）
         卡2 = self._卡(框)
@@ -1782,6 +1922,8 @@ class 设置页:
                                    min(7200, int(str(self.截长.get()).strip() or 120)))
         except Exception:
             c['游戏截图最长秒'] = 120
+        # ⚠ 1.7.11：截图「宽度 / 质量」搬到全局页去了（所有截图共用），这里不再碰它们 ——
+        #   以前在这儿读 self.截宽/截质，搬走以后那两个变量属于全局页，重复写会把用户的选择盖掉。
         if paths.写配置(c):
             self.应用.配置.update(c)
             self.配置.update(c)
@@ -2060,6 +2202,24 @@ class 设置页:
             窗.after(120, 抢焦)
             窗.after(400, 抢焦)
             窗.after(60, 看鼠标)
+
+            # ⭐ 1.7.11（用户反馈 #5）：中文输入法开着的时候，按键会被输入法吃掉，
+            #   这个窗一个 KeyPress 都收不到 —— 用户会觉得「怎么按都设不上」，
+            #   而且完全不知道为什么。这里 2.5 秒没收到键就换一句提示。
+            def 催切换():
+                if 已收['成']:
+                    return
+                try:
+                    if not 窗.winfo_exists():
+                        return
+                except Exception:
+                    return
+                try:
+                    提示.configure(text='按了没反应？\n先把输入法切到英文（Shift 或 Ctrl+空格）再按一次\n\nEsc 取消')
+                except Exception:
+                    pass
+
+            窗.after(2500, 催切换)
         except Exception as e:
             self.说.set('录键没起来：%s' % e)
 

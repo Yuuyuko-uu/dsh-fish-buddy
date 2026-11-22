@@ -89,9 +89,13 @@ except Exception as e:
 # ---------- 选的那档没装时，要退回装好的那档 ----------
 小目录 = paths.档目录('int8')
 os.makedirs(小目录, exist_ok=True)
-for 名, 长 in (('model.onnx', 4096), ('tokens.txt', 2048)):
-    with open(os.path.join(小目录, 名), 'wb') as f:
-        f.write(b'x' * 长)
+# ⚠ 1.6.9 之后 `档就绪()` 会按「每档最小体积」判，光写 4KB 假文件会被当成没下完。
+#   这里用 truncate 造**稀疏文件**：大小够、但不真占磁盘（随写随释放）。
+下限 = int(paths.语音最小字节.get('int8', 1024))
+for 名, 长 in (('model.onnx', 下限), ('tokens.txt', 下限), ('silero_vad.onnx', 4096)):
+    路 = os.path.join(小目录, 名)
+    with open(路, 'wb') as f:
+        f.truncate(int(长))
 查('装了哪档就报哪档可用', paths.可用档() == 'int8', paths.可用档())
 查('实际用的目录跟着装好的那档走', paths.当前档目录() == 小目录, paths.当前档目录())
 查('选的那档和实际用的那档是两件事', paths.档目录() == 小目录 and paths.当前档目录() == 小目录,
