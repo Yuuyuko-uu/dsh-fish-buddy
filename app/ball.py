@@ -1085,12 +1085,16 @@ class 鱼搭子:
         self.球画 = None
         self.球图 = None
         self.待显示 = queue.Queue()
+        # ⭐ 1.8.4：DSH 来的话先排这个队，主线程到点取一条（_送下一条）。
+        #   HTTP 线程只 append，不碰 Tk。
+        self._回复队 = []
+        self._上次送 = 0.0
         self.未读回话 = []
         self.回话口 = None
         try:
             import reply_server
             口 = reply_server.回话口(
-                lambda t: self.待显示.put(('回复', t)),
+                lambda t: self._收一句回复(t),
                 端口=配置.get('回话端口', 8778),
                 on_devices=self._列麦克风,
                 on_device=self.换麦克风,
@@ -1869,6 +1873,15 @@ class 鱼搭子:
                              fg=(字次 if 在 else 红), anchor='w',
                              font=('Microsoft YaHei UI', 9))
         self.状态.pack(fill='x', pady=(0, 6))
+        # ⚠ 1.8.3：这一页建起来之前到的状态消息，在这里补上
+        #   （不然要等下一次状态变化才更新，看着像「卡在准备麦克风」）
+        try:
+            补 = getattr(self, '待补状态', None)
+            if 补:
+                self.状态.configure(text=补[0], fg=补[1])
+                self.待补状态 = None
+        except Exception:
+            pass
         self.流水 = tk.Text(内, bg=淡卡, fg=字深, bd=0, height=10,
                             font=('Microsoft YaHei UI', 9), wrap='word',
                             padx=10, pady=8, insertbackground=字深)
@@ -3349,7 +3362,7 @@ class 鱼搭子:
             return
         self.通话 = True
         if hasattr(self, '状态'):
-            self.状态.configure(text='准备麦克风…', fg=字次)
+            self._设状态('准备麦克风…', 字次)
         self._刷功能行()
         self._开耳朵()
 
@@ -3409,7 +3422,7 @@ class 鱼搭子:
             self.待显示.put(('提示', '· 还没装语音模型 —— 点上面的上半块（设置页）装一下，一次就好'))
             if hasattr(self, '状态'):
                 try:
-                    self.状态.configure(text='还没装语音', fg=红)
+                    self._设状态('还没装语音', 红)
                 except Exception:
                     pass
             return
@@ -3496,7 +3509,7 @@ class 鱼搭子:
             pass
         if hasattr(self, '状态'):
             try:
-                self.状态.configure(text='已停下', fg=字次)
+                self._设状态('已停下', 字次)
             except Exception:
                 pass
 
@@ -3519,6 +3532,11 @@ class 鱼搭子:
             return False, '只有标点'
         for i in range(len(文符) - 2):
             if 文符[i] == 文符[i + 1] == 文符[i + 2] and 文符[i] not in '哈呵嘿呜':
+                # ⚠ 1.8.4：**数字不算重复**。`8000` 里就是三个 `0` 连着，
+                #   以前整句会被当成「同一个字重复」的噪声丢掉 ——
+                #   实测：「把截图上线设置成8000」整句发不出去，去掉数字才发。
+                if 文符[i].isdigit():
+                    continue
                 return False, '同一个字重复'
         if len(文符) == 1:
             if 文符 in 鱼搭子.语气词:
@@ -3690,6 +3708,24 @@ class 鱼搭子:
                 pass
 
     # ---------- 刷屏 ----------
+    def _设状态(self, 文, 色):
+        # ⚠ 1.8.3：`状态` 和 `流水` 是一起在 `_建电话页` 里建的（用户打开「电话」那一页才有）。
+        #   1.7.9 修 issue #11 时把 `流水` 那边补了 hasattr，**这里漏了** ——
+        #   于是「通话开着、但从来没打开过电话页」时，每来一条状态消息就报一次
+        #   `'鱼搭子' object has no attribute '状态'`（v1.8.2 实测反馈）。
+        #   状态栏还没建就先记下，等那一页建出来再补一次，别把话丢了。
+        w = getattr(self, '状态', None)
+        if w is None:
+            try:
+                self.待补状态 = (文, 色)
+            except Exception:
+                pass
+            return
+        try:
+            w.configure(text=文, fg=色)
+        except Exception:
+            pass
+
     def _写(self, 文本):
         # ⚠ 1.7.9：`流水` 是设置窗「电话」那一页建出来的。游戏模式 / 刚启动时那页还没建，
         #   这里只判了 self.通话 就会 AttributeError —— 表现是每条消息都报
@@ -3701,11 +3737,48 @@ class 鱼搭子:
         self.流水.see('end')
         self.流水.configure(state='disabled')
 
+    def _收一句回复(self, 文本):
+        """DSH 来了一句，排进队尾。**只做这一件事**（HTTP 线程调的，不碰 Tk）。"""
+        try:
+            self._回复队.append(str(文本 or ''))
+        except Exception:
+            pass
+
+    def _送下一条(self):
+        """主线程每跳看一眼：队列里有人、而且离上一条够久了，就送一条去显示。
+
+        单页按「气泡秒」等，多页等上一条翻完，并让最后一页停够。
+        """
+        try:
+            import time as _t
+            队 = getattr(self, '_回复队', None)
+            if not 队:
+                return
+            泡 = getattr(self, '气泡', None)
+            if (泡 is not None and self.配置.get('气泡开', True)
+                    and not getattr(self, '游戏模式', False) and 泡.正在读多页()):
+                return
+            try:
+                间隔 = float(self.配置.get('气泡秒') or 6)
+            except Exception:
+                间隔 = 6.0
+            if 间隔 <= 0:
+                间隔 = 6.0
+            now = _t.time()
+            if now - float(getattr(self, '_上次送', 0) or 0) < 间隔:
+                return
+            文 = 队.pop(0)
+            self._上次送 = now
+            self.待显示.put(('回复', 文))
+        except Exception:
+            pass
+
     def _刷屏(self):
         # ⚠ 1.3.5：这个循环**必须活着**。以前只有「取队列」那一步包了 try，
         #   某条消息在处理时一抛错（气泡/弹幕/写流水都可能），循环直接崩掉、再也不排下一跳 ——
         #   表现就是「大肥鱼在说话，可弹幕/气泡一个都不出来，日志里也什么都没有」。
         try:
+            self._送下一条()
             self._刷屏一轮()
         except Exception as e:
             try:
@@ -3735,13 +3808,13 @@ class 鱼搭子:
         if 谁 == '状态' and self.通话:
             态, *附 = 内容
             if 态 == 'loading':
-                self.状态.configure(text='正在准备麦克风…', fg=字次)
+                self._设状态('正在准备麦克风…', 字次)
             elif 态 == 'listening':
-                self.状态.configure(text='● 正在听', fg=绿)
+                self._设状态('● 正在听', 绿)
             elif 态 == 'idle':
-                self.状态.configure(text='○ 停了', fg=字次)
+                self._设状态('○ 停了', 字次)
             elif 态 == 'error':
-                self.状态.configure(text='✕ ' + (附[0] if 附 else '出错'), fg=红)
+                self._设状态('✕ ' + (附[0] if 附 else '出错'), 红)
                 self._写('✕ ' + (附[0] if 附 else '出错'))
         elif 谁 == '你':
             # ⚠ 2026-10-27：句子在 _收到识别 里已经直接发过了，
@@ -3996,13 +4069,12 @@ def 自测():
         页们3, 体3, 行高3, _ = 泡.排页('间；太长，又像海报贴在屏幕上，压得人喘不过气。'
                                   '我觉得最合适的，是让气泡跟着你说话时的呼吸节奏一鼓一鼓。')
         越界 = []
-        块高3 = 行高3 * len(页们3[0])
-        顶3 = 泡.内[1] + max(0, ((泡.内[3] - 泡.内[1]) - 块高3) // 2)
-        for i, 行 in enumerate(页们3[0]):
-            左3, 右3 = 泡._行范围(顶3 + i * 行高3 + 行高3 // 2, 行高3)
-            if 体3.getlength(行) > (右3 - 左3) + 2:
-                越界.append(行)
-        断言.append(('气泡：每行都写在气泡的白里（%d 行）' % len(页们3[0]), not 越界))
+        for 页 in 页们3:
+            for i, 行 in enumerate(页):
+                _, 字框 = 泡._量一行(体3, 行)
+                if 泡._行位置(字框, 泡._行中(i, len(页), 行高3)) is None:
+                    越界.append(行)
+        断言.append(('气泡：每行都写在气泡的白里（%d 页）' % len(页们3), not 越界))
     except Exception as e:
         断言.append(('气泡那条（%s）' % e, False))
     # ⭐ 0.2.4：语言和模型都不给选了 —— 少了两个下拉，就不会有人选错

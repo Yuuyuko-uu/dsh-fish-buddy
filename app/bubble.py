@@ -15,6 +15,7 @@ import ctypes.wintypes as wt
 import os
 import threading
 import time
+from functools import lru_cache
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -433,7 +434,16 @@ def _切词(文本):
         段们.append(字)
     if 当:
         段们.append(当)
-    return 段们
+    # 句末标点跟前一个字走，开括号跟后一个字走。它们一起量宽，不能挂出框。
+    合段 = []
+    for 段 in 段们:
+        if 合段 and 段 != '\n' and 合段[-1] != '\n' and (
+                段[0] in '。，、；：！？）」』】》〉〕〗…·.,;:!?)]}'
+                or 合段[-1][-1] in '（「『【《〈〔〖([{'):
+            合段[-1] += 段
+        else:
+            合段.append(段)
+    return 合段
 
 
 def 量内区(图):
@@ -545,6 +555,8 @@ class 气泡:
     def _按宽(self, 宽):
         """等比缩放到这个宽度，并把「气泡里能写字的地方」重新量一遍。"""
         宽 = max(300, min(int(宽), self.最宽))
+        if 宽 == getattr(self, '宽', None):
+            return self.内
         self.宽 = 宽
         倍 = 宽 / float(self.原.width)
         self.图 = self.原.resize((宽, int(self.原.height * 倍)), Image.LANCZOS)
@@ -590,137 +602,147 @@ class 气泡:
         self._宽表 = 表
         return 表
 
-    def _行范围(self, y中, 行高):
-        """这一行**字实际压着的那几行**里，共同的白段 = 最左/最右能写到哪。
-
-        ⭐ 0.9.6：以前取整行高（±14px）的交集 —— 气泡弧度很大，上下各借一点就把宽度吃掉三四十像素。
-        """
+    def _行范围(self, 顶, 底):
+        """文字和描边所占的每一条像素行，都得落在这一段底色里。"""
         表 = self._量宽()
-        半 = max(4, int(行高 * 0.18))
-        左们, 右们 = [], []
-        for y in range(int(y中 - 半), int(y中 + 半) + 1):
-            if y in 表:
-                左们.append(表[y][0])
-                右们.append(表[y][1])
-        if not 左们:
-            return (self.内[0], self.内[2])
-        return (max(左们), min(右们))
+        白段 = [表.get(y) for y in range(顶, max(顶 + 1, 底))]
+        if None in 白段:
+            return None
+        return max(左 for 左, _ in 白段), min(右 for _, 右 in 白段) + 1
 
-    def _槽宽(self, i, 行数, 行高, 留边=7):
-        """第 i 行（这一页共 行数 行、整块垂直居中）能写多宽。"""
-        高内 = self.内[3] - self.内[1]
-        块高 = 行高 * max(1, 行数)
-        顶 = self.内[1] + max(0, (高内 - 块高) // 2)
-        行中 = 顶 + i * 行高 + 行高 // 2
-        左, 右 = self._行范围(行中, 行高)
-        return max(80, 右 - 左 - 留边), 行中
+    def _行中(self, i, 行数, 行高):
+        顶 = (self.内[1] + self.内[3] - 行数 * 行高) // 2
+        return 顶 + i * 行高 + 行高 // 2
+
+    def _量一行(self, 体, 行):
+        """共用混排基线，量出每段字的位置和整行带描边的外框。"""
+        段们, 框们 = [], []
+        起 = 0.0
+        for 段, 字体 in 切混排(行, 体, self.字体路, 体.size):
+            左, 顶, 右, 底 = 字体.getbbox(段, anchor='ls', stroke_width=self.描边)
+            # Pillow 画字时先取整，再用小数部分做亚像素偏移。
+            像素起 = int(起)
+            框们.append((像素起 + 左, 顶, 像素起 + 右 + (起 != 像素起), 底))
+            段们.append((起, 段, 字体))
+            起 += 字体.getlength(段)
+        return 段们, (min(左 for 左, _, _, _ in 框们), min(顶 for _, 顶, _, _ in 框们),
+                      max(右 for _, _, 右, _ in 框们), max(底 for _, _, _, 底 in 框们))
+
+    def _行位置(self, 字框, 行中, 翻转=False):
+        左字, 顶字, 右字, 底字 = 字框
+        y = 行中 - (顶字 + 底字) // 2
+        范围 = self._行范围(y + 顶字, y + 底字)
+        if 范围 is None:
+            return None
+        左, 右 = 范围
+        留边 = max(3, self.宽 // 130)
+        if 右字 - 左字 + 留边 * 2 > 右 - 左:
+            return None
+        if 翻转:
+            左, 右 = self.宽 - 右, self.宽 - 左
+        return (左 + 右 - 左字 - 右字) // 2, y
 
     def 排字(self, 文本):
         """第一页的 (字体, 行, 行高, 字号) —— 量一下排得下吗用它。"""
         页们, 体, 行高, 号 = self.排页(文本)
         return 体, 页们[0], 行高, 号
 
-    def _定字号(self):
-        """字号跟着框走：框大一点，字也大一点（不缩到看不见，也不至于撑破）。
-
-        ⭐ 0.9.4：以前固定 22 号，把气泡大小拖到 160% 时框变大了字还是那么小。
-        现在按内区宽度算：335px 宽 → 22 号（跟以前一样），框越大字越大，16~40 之间。
-        """
-        高内 = self.内[3] - self.内[1] - 8
-        内宽 = self.内[2] - self.内[0]
-        最小 = 16
-        顶号 = max(最小, min(40, int(round(内宽 / 18.0))))
-        体 = ImageFont.truetype(self.字体路, 顶号)
+    def _取字体(self, 号):
+        体 = ImageFont.truetype(self.字体路, 号)
         字体路径登记(体, self.字体路)
-        行高 = int(顶号 * 1.36)
-        while 顶号 > 最小 and 行高 > 高内:
-            顶号 -= 1
-            体 = ImageFont.truetype(self.字体路, 顶号)
-            字体路径登记(体, self.字体路)
-            行高 = int(顶号 * 1.36)
-        return 体, 行高, 顶号
+        行高 = max(int(round(号 * 1.28)), 号 + self.描边 * 2 + 1)
+        return 体, 行高, 号
+
+    def _定字号(self):
+        """短句用随气泡大小变化的正常字号。"""
+        内宽 = self.内[2] - self.内[0]
+        return self._取字体(max(16, min(40, round(内宽 / 18))))
 
     def _每页行(self, 行高):
-        高内 = self.内[3] - self.内[1] - 2
-        return max(1, min(int(self.最多行), int(高内 // max(1, 行高))))
+        # 上下还有一小段扫描范围，实际字框仍要逐像素行检查。
+        高内 = self.内[3] - self.内[1] + 10
+        return max(1, min(self.最多行, 高内 // 行高))
 
-    def _槽宽们(self, 行高):
-        """这一页每一行能写多宽（整块垂直居中算出来的），并统一成**一个宽度**。
+    def _排一页(self, 段们, 起, 行高, 量字框):
+        """分别试居中的一行、两行、三行等，选能放下最多原文的排法。"""
+        最好, 最远 = [], 起
+        for 行数 in range(1, self._每页行(行高) + 1):
+            行们, 到 = [], 起
+            上行底 = 0
+            for i in range(行数):
+                行中 = self._行中(i, 行数, 行高)
+                行, 行底 = '', 上行底
+                while 到 < len(段们) and 段们[到] != '\n':
+                    试 = 行 + 段们[到]
+                    字框 = 量字框(试)
+                    位置 = self._行位置(字框, 行中)
+                    if 位置 is None or 位置[1] + 字框[1] < 上行底:
+                        break
+                    行 = 试
+                    行底 = 位置[1] + 字框[3]
+                    到 += 1
+                if not 行:
+                    break
+                行们.append(行)
+                上行底 = 行底
+                while 到 < len(段们) and 段们[到] == '\n':
+                    到 += 1
+            # 合成时按实际行数居中，因此只接受以相同行数排出来的一页。
+            if len(行们) == 行数 and 到 > 最远:
+                最好, 最远 = 行们, 到
+                if 到 == len(段们):
+                    break
+        return 最好, 最远
 
-        ⭐ 0.9.6：第一行贴着上圆弧本来就窄，但要是每行各用各的宽度，就会一排宽一排窄。
-        统一成「所有行都放得下」的那个宽度：整块左右边缘对齐，看着才工整。
-        """
-        每页 = self._每页行(行高)
-        宽们 = [self._槽宽(i, 每页, 行高)[0] for i in range(每页)]
-        统一 = max(120, min(宽们)) if 宽们 else 200
-        return 统一, 统一, 每页
+    def _备排页(self, 原段们, 体, 行高):
+        @lru_cache(maxsize=512)
+        def 量字框(行):
+            return self._量一行(体, 行)[1]
 
-    def _混排(self, 体, 行):
-        return 切混排(行, 体, self.字体路, getattr(self, '号', 22))
-
-    def _混宽(self, 体, 行):
-        return 混排宽(行, 体, self.字体路, getattr(self, '号', 22))
+        中线 = self._行中(0, 1, 行高)
+        段们 = []
+        for 段 in 原段们:
+            # 只有单独占一行也放不下的长单词或长数字才拆开。
+            if len(段) > 1 and self._行位置(量字框(段), 中线) is None:
+                段们.extend(段)
+            else:
+                段们.append(段)
+        return 段们, 量字框
 
     def 排页(self, 文本):
-        """把话排成「一页一页」；每行能写多宽，按气泡那一行的形状算。
+        """优先整页读完，长文本按顺序分页，每行用自己所在位置的宽度。"""
+        原段们 = _切词(str(文本 or '').replace('\r\n', '\n').replace('\r', '\n').strip() or '…')
+        体, 行高, 号 = self._定字号()
+        段们, 量字框 = self._备排页(原段们, 体, 行高)
+        首, 到 = self._排一页(段们, 0, 行高, 量字框)
+        整页 = 到 == len(段们)
+        尾行太短 = False
+        if 整页 and len(首) > 1:
+            左, _, 右, _ = 量字框(首[-1])
+            前左, _, 前右, _ = 量字框(首[-2])
+            尾行太短 = (右 - 左) * 3 < 前右 - 前左
+        if 整页 and not 尾行太短:
+            return [首], 体, 行高, 号
 
-        ⭐ 0.9.2：以前排不下就砍字加省略号 —— 话被吃掉一半。
-        ⭐ 0.9.5：以前按一个矩形折行，长行会顶出气泡的圆弧。现在走 _槽宽们()。
-        框的大小只跟「球多大 + 气泡大小%」有关，字排不下就分页，一页页翻完。
-        """
-        不能开头 = '。，、；：！？）」』】…·.,;:!?)'
-        体, 行高, 顶号 = self._定字号()
-        self.号 = 顶号          # ⭐ 1.2.2：备用字体按同一个字号找
-        第一宽, 其余宽, 每页 = self._槽宽们(行高)
-        self._第一宽, self._其余宽 = 第一宽, 其余宽
-        页们, 当页, 行 = [], [], ''
+        # 稍微缩字能省下一页就缩；只是尾行短，最多降两号，并且要能省掉一整行。
+        最小 = max(15, 号 - (2 if 整页 else max(2, 号 // 8)))
+        for 小号 in range(号 - 1, 最小 - 1, -1):
+            小体, 小行高, _ = self._取字体(小号)
+            小段们, 小量字框 = self._备排页(原段们, 小体, 小行高)
+            一页, 末 = self._排一页(小段们, 0, 小行高, 小量字框)
+            if 末 == len(小段们) and (not 整页 or len(一页) < len(首)):
+                return [一页], 小体, 小行高, 小号
 
-        def 换行():
-            """把手上这行收进这一页；页满就翻页。"""
-            nonlocal 行, 当页
-            if not 行:
-                return
-            当页.append(行)
-            行 = ''
-            if len(当页) >= 每页:
-                页们.append(当页)
-                当页 = []
-
-        def 现在宽():
-            return 第一宽 if len(当页) == 0 else 其余宽
-
-        for 段 in _切词(str(文本 or '').strip()):
-            if 段 == chr(10):
-                换行()
-                continue
-            宽限 = 现在宽()
-            if not 行:
-                pass
-            elif self._混宽(体, 行 + 段) <= 宽限:
-                行 += 段
-                continue
-            elif 段 in 不能开头:
-                行 += 段
-                continue
-            else:
-                换行()
-                宽限 = 现在宽()
-            # 一个段就比这一行还宽（超长英文/数字）：只能一个字一个字断
-            if self._混宽(体, 段) <= 宽限:
-                行 = 段
-                continue
-            for 字 in 段:
-                if 行 and self._混宽(体, 行 + 字) > 宽限:
-                    换行()
-                    宽限 = 现在宽()
-                行 += 字
-        if 行:
-            当页.append(行)
-        if 当页:
-            页们.append(当页)
-        if not 页们:
-            页们 = [['…']]
-        return 页们, 体, 行高, 顶号
+        页们 = []
+        页, 起 = 首, 0
+        while True:
+            if 到 == 起:
+                raise ValueError('气泡里找不到放字的位置')
+            页们.append(页)
+            if 到 == len(段们):
+                return 页们, 体, 行高, 号
+            起 = 到
+            页, 到 = self._排一页(段们, 起, 行高, 量字框)
 
     def 合成(self, 文本, 翻转=False):
         """（里面只合成第一页）—— 框的大小是固定的，跟字多少无关。"""
@@ -733,47 +755,12 @@ class 气泡:
         底 = self.图.transpose(Image.FLIP_LEFT_RIGHT) if 翻转 else self.图
         图 = 底.copy()
         画 = ImageDraw.Draw(图)
-        宽, 高 = 图.size
-        总高 = 行高 * len(行们)
-        # ⭐ 0.7.6：垂直居中，但**绝不许往上顶出内区**
-        y = self.内[1] + max(0, ((self.内[3] - self.内[1]) - 总高) // 2)
-        # ⭐ 0.9.6：整块共用一条中心线 —— 第 2 行往下左右边缘对齐，不做「一排宽一排窄」
-        左们, 右们 = [], []
-        for i in range(len(行们)):
-            左i, 右i = self._行范围(y + i * 行高 + 行高 // 2, 行高)
-            左们.append(左i)
-            右们.append(右i)
-        块左, 块右 = max(左们), min(右们)
-        try:
-            基 = 体.getmetrics()[0]      # 主字体的 ascent：备用字体的基线对齐到它
-        except Exception:
-            基 = None
-        for 行 in 行们:
-            宽这行 = self._混宽(体, 行)
-            左, 右 = 块左, 块右
-            if 翻转:
-                左, 右 = 宽 - 块右, 宽 - 块左
-            # 第一行贴着上圆弧，只有它稍微往里收一点；其余行共用同一对边
-            x = 左 + max(0, (右 - 左 - 宽这行) // 2)
-            # ⭐ 1.2.2：一句话可以有两种字体 —— 主字体缺的字（颜文字/符号）用备用字体画
-            段们 = self._混排(体, 行)
-            if len(段们) == 1 and 段们[0][1] is 体:
-                画.text((x, y), 行, font=体, fill=self.字色,
+        for i, 行 in enumerate(行们):
+            段们, 字框 = self._量一行(体, 行)
+            x, y = self._行位置(字框, self._行中(i, len(行们), 行高), 翻转)
+            for 起, 段, 字体 in 段们:
+                画.text((x + 起, y), 段, font=字体, anchor='ls', fill=self.字色,
                         stroke_width=self.描边, stroke_fill=self.描边色)
-            else:
-                起 = x
-                for 段, 字体 in 段们:
-                    if 字体 is 体 or 基 is None:
-                        画.text((起, y), 段, font=字体, fill=self.字色,
-                                stroke_width=self.描边, stroke_fill=self.描边色)
-                    else:
-                        画.text((起, y + 基), 段, font=字体, fill=self.字色,
-                                stroke_width=self.描边, stroke_fill=self.描边色, anchor='ls')
-                    try:
-                        起 += 字体.getlength(段)
-                    except Exception:
-                        起 += 体.getlength(段)
-            y += 行高
         return 图
 
     def _所在屏(self, x, y):
@@ -859,7 +846,7 @@ class 气泡:
         self._第几页 = 0
         self._停秒 = max(1.0, float(秒))
         self._换页秒 = max(0.8, float(换页秒))
-        图 = self.合成页(self.页们[0], self.体, self.行高, False)
+        图 = self.图
         self._翻转 = False
         try:
             球框们 = [int(v) for v in (self.球框 or (0, 0, 132, 132))]
@@ -887,12 +874,26 @@ class 气泡:
         except Exception:
             y = max(0, int(y))
         self._位置 = (x, y)
-        self._显示这页(淡入=True)
+        # ⭐ 1.8.4：**每来一条就是一个新的一代**。
+        #   上一句如果正在淡出，这一下就让它作废（见 _淡出 里的代检查）——
+        #   不然它走完会 `窗.藏()`，把刚换上新字的这个气泡一起藏掉，
+        #   表现就是「连着说话时，每句闪一下就没」。
+        self._代 = getattr(self, '_代', 0) + 1
+        # 气泡还在（上一句没消失）→ 原地换字，不淡入；已经不见了 → 才淡入
+        try:
+            刚还挂着 = float(getattr(self, '_可见到', 0) or 0) + 1.0 > time.perf_counter()
+        except Exception:
+            刚还挂着 = False
+        self._显示这页(淡入=not 刚还挂着)
         return True
 
     # ---------- 翻页 ----------
     def _取消定时(self):
-        for 名 in ('_藏定时', '_入定时'):
+        # ⚠ 1.8.4：`_出定时`（淡出的定时器）以前**没在这里取消** ——
+        #   一句说完正在淡出，下一句正好来了：显示() 取消的只是藏/入定时，
+        #   淡出还在一帧帧走，走完 `窗.藏()` 把**刚显示出来的新气泡**藏掉。
+        #   表现就是「第一句正常，后面每句闪一下就没」。
+        for 名 in ('_藏定时', '_入定时', '_出定时'):
             号 = getattr(self, 名, None)
             if 号:
                 try:
@@ -900,6 +901,10 @@ class 气泡:
                 except Exception:
                     pass
                 setattr(self, 名, None)
+
+    def 正在读多页(self):
+        """最后一页也要停够设定的时间，下一条回复才能接上。"""
+        return len(self.页们) > 1 and self._藏定时 is not None
 
     def _显示这页(self, 淡入=False):
         self._取消定时()
@@ -918,6 +923,7 @@ class 气泡:
         还有下一页 = self._第几页 < len(self.页们) - 1
         # ⭐ 0.9.2：还有下一页就按「每页停几秒」翻；最后一页停够了才淡掉
         等 = self._换页秒 if 还有下一页 else self._停秒
+        self._可见到 = time.perf_counter() + 等
         下个 = self._下一页 if 还有下一页 else self.藏
         try:
             self._藏定时 = self.根.after(int(max(0.5, 等) * 1000), 下个)
@@ -968,22 +974,32 @@ class 气泡:
 
     def 藏(self):
         self._取消定时()
+        self._可见到 = time.perf_counter()
+        # 让还在跑的淡出作废（不然它会走完再把窗藏一次）
+        self._代 = getattr(self, '_代', 0) + 1
         self._淡出(0)
 
-    def _淡出(self, 步=0, 起=None):
+    def _淡出(self, 步=0, 起=None, 代=None):
         """一点点变淡再消失（分层窗可以给整体不透明度）。
 
         ⭐ 1.1.0：以前固定 6 帧 × 45ms，一帧跳一格，看着是一顿一顿淡下去的。
         ⭐ 1.3.0：改成**按真实时间**推进 —— 淡出永远是 `_淡出毫秒`（默认 320ms），
           跟「停留几秒」完全无关。以前是按帧数走的，主线程一忙（弹幕、截图）
           每帧的实际间隔就变长，320ms 能拖成 1 秒多，看着就是「消散很慢、不流畅」。
+        ⭐ 1.8.4：带**代**跑。淡出走到一半时新消息来了（`显示()` 会把代 +1），
+          这一次淡出就作废，**不许再把窗藏掉** —— 连着说话时气泡要一直在，只换字。
         """
         import time as _t
+        if 代 is None:
+            代 = getattr(self, '_代', 0)
+        if getattr(self, '_代', 0) != 代:
+            return
         if 起 is None:
             起 = _t.perf_counter()
         比 = (_t.perf_counter() - 起) / max(0.05, self._淡出毫秒 / 1000.0)
         if 比 >= 1.0:
-            self.窗.藏()
+            if getattr(self, '_代', 0) == 代:
+                self.窗.藏()
             return
         不透明 = max(0, int(255 * (1.0 - 比)))
         try:
@@ -992,7 +1008,7 @@ class 气泡:
         except Exception:
             pass
         try:
-            self.根.after(self._帧间, lambda: self._淡出(步 + 1, 起))
+            self._出定时 = self.根.after(self._帧间, lambda: self._淡出(步 + 1, 起, 代))
         except Exception:
             self.窗.藏()
 
