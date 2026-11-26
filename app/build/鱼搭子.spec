@@ -53,12 +53,21 @@ hiddenimports = [
     noarchive=False,
 )
 PYZ = PYZ(分析.pure)
+# ⭐ 1.8.4：**从 onefile 改成 onedir**（目录版）。
+#
+#   为什么改：onefile 每次启动都会把自己解压到 %TEMP%\_MEIxxxxx（约 204MB），
+#   **只有「正常退出」才会删那个目录**。DSH 重启、窗口被强关、进程树被带走 —— 都算非正常退出，
+#   于是 200MB 永久留在 %TEMP%。实测攒了 266 个目录、54.35 GB（6-27 第一个，10-26~10-30 集中 200 个）。
+#
+#   onedir 之后：解压只发生**一次**（就是解压 zip 到安装目录那一下），
+#   程序启动直接读同目录的 `_internal\`，%TEMP% 里再也不会出现 _MEI。
+#
+#   代价：发布物从「一个 exe」变成「一个文件夹」，得打包成 zip（插件那边下载完会解开）。
 EXE = EXE(
     PYZ,
     分析.scripts,
-    分析.binaries,
-    分析.datas,
     [],
+    exclude_binaries=True,   # ← onedir：二进制和数据交给下面的 COLLECT
     name='鱼搭子',
     debug=False,
     bootloader_ignore_signals=False,
@@ -75,4 +84,13 @@ EXE = EXE(
     #   没接住的话整个 Node 进程（也就是 DSH）会跟着退出。
     #   现在默认普通启动；游戏里按键读不到的人，自己右键「以管理员身份运行」挂件。
     uac_admin=False,
+)
+
+COLLECT(
+    EXE,
+    分析.binaries,
+    分析.datas,
+    strip=False,
+    upx=False,
+    name='鱼搭子',
 )
