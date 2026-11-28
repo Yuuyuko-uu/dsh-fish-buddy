@@ -243,11 +243,23 @@ class 耳朵:
     # ---------- 循环 ----------
     def 跑(self):
         try:
+            # ⚠ 1.8.5：这里以前有一行 `self._stop.clear()`，而且排在「加载模型」**后面** ——
+            #   加载模型要好几秒。挂断 / 关闲耳朵正好抢在那几秒里调 `停()`，停机信号就被这一行
+            #   **擦掉**：这只耳朵照样开麦、照样识别，可它的引用早被置空，没人再能停它
+            #   —— 一只跑不完的「孤儿耳朵」。
+            #   它的「代」一过期，认出来的每一句都会在第一道门被静默丢掉，日志里就是
+            #   「一直在听到、一个送出都没有」（实测有一段连着 46 句、8 分半钟）。
+            #   现在不清标志，进来先看有没有人已经叫它停。
+            if self._stop.is_set():
+                self.记一笔('这只耳朵还没开工就被叫停了，直接退')
+                return
             self.on_state('loading')
             self._懒加载()
+            if self._stop.is_set():
+                self.记一笔('模型加载完发现已经被叫停了，不开麦')
+                return
             import sounddevice as sd
             self.on_state('listening')
-            self._stop.clear()
             self.记一笔('开麦克风：设备=%s 采样率=%s' % (self.device, self.sample_rate))
             self._峰值 = 0.0
             self._块数 = 0
@@ -397,9 +409,23 @@ class 耳朵:
                 self.记一笔('识别出错：%s' % e)
                 self.on_state('error', '识别出错：%s' % e)
                 continue
+            try:
+                秒 = float(len(samples)) / float(self.sample_rate) if self.sample_rate else 0.0
+            except Exception:
+                秒 = 0.0
             if text:
-                self.记一笔('听到：' + text)
-                self.on_text(text)
+                # ⚠ 1.8.5：带上**这一段有多长** —— 「长句被吞」要能一眼看出是不是只在长段上发生
+                self.记一笔('听到：%s（%.1f 秒）' % (text, 秒))
+                # ⚠ 1.8.5：交出去的时候出错，不能把整只耳朵带死（以前异常会一路冒到最外面，
+                #   这只腿直接结束，后面一个音都听不到）
+                try:
+                    self.on_text(text)
+                except Exception as e:
+                    self.记一笔('交出去的时候出错了：%s' % e)
+            elif 秒 >= 1.0:
+                # ⚠ 1.8.5：**有声音、也够长，但一个字都没认出来**。以前这里什么都不写，
+                #   于是「听到但没送出」里最可能的一种（认出来是空的）连痕迹都没有。
+                self.记一笔('听到：（空——这段 %.1f 秒没认出一个字）' % 秒)
 
     def 只听(self, 开):
         """⭐ 1.2.1：按着说话才听；松手就闭嘴（麦克风不关，起得快）。"""
@@ -438,6 +464,9 @@ class 耳朵:
         self._q.put(块)
 
     def 开(self):
+        # ⚠ 1.8.5：清停机标志放在这里（不是放进 跑()）—— 放 跑() 里的话，
+        #   「刚叫停、还没跑到那行」的这口气会被自己擦掉，见 跑() 开头那段说明。
+        self._stop.clear()
         threading.Thread(target=self.跑, daemon=True).start()
 
     def 停(self):

@@ -10,3 +10,7 @@ app/config.json
 
 # PyInstaller 的工作目录（spec 本身要留着，只忽略它生成的同名目录）
 app/build/*/
+
+# 打包出来的 zip / 解开的目录都不进仓库（几百兆，走 release 附件）
+/*.zip
+/鱼搭子/
